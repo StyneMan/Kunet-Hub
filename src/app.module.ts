@@ -1,0 +1,190 @@
+import { Module } from '@nestjs/common';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
+import { CustomerModule } from './customer/customer.module';
+import { RidersModule } from './riders/riders.module';
+import { OrdersModule } from './orders/orders.module';
+import { VendorsModule } from './vendors/vendors.module';
+import { ProductsModule } from './products/products.module';
+import { PaymentsModule } from './payments/payments.module';
+import { ParcelsModule } from './parcels/parcels.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Customer } from './entities/customer.entity';
+import { Rider } from './entities/rider.entity';
+import { Parcel } from './entities/parcel.entity';
+import { Vendor } from './entities/vendor.entity';
+import { join } from 'path';
+import { MailerModule } from '@nestjs-modules/mailer';
+// import { OperatorService } from './operator/operator.service';
+import { OperatorModule } from './operator/operator.module';
+import { Operator } from './entities/operator.entity';
+import { Service } from './entities/service.entity';
+import { Bike } from './entities/bike.entity';
+import { Size } from './entities/size.entity';
+import { Product } from './entities/product.entity';
+import { Order } from './entities/order.entity';
+import { PaymentEntity } from './entities/payment.entity';
+import { AdminOTP } from './entities/otp.admin.entity';
+import { CustomerOTP } from './entities/otp.customer.entity';
+import { RiderOTP } from './entities/otp.rider.entity';
+import { OperatorOTP } from './entities/otp.operator.entity';
+import { FAQ } from './entities/faq.entity';
+import { Color } from './entities/color.entity';
+import { ZonesModule } from './zones/zones.module';
+import { Zone } from './entities/zone.entity';
+import { PassportModule } from '@nestjs/passport';
+import { JwtModule } from '@nestjs/jwt';
+// import { BankController } from './bank/bank.controller';
+import { BankModule } from './bank/bank.module';
+import { Category } from './entities/category.entity';
+import { Cart } from './entities/cart.entity';
+import { OperatorActivity } from './entities/operator.activity.entity';
+import { AdminActivity } from './entities/admin.activity.entity';
+import { RiderBank } from './entities/rider.bank.entity';
+import { VendorBank } from './entities/vendor.bank.entity';
+import { Admin } from './entities/admin.entity';
+import { Address } from './entities/address.entity';
+import { RiderDocument } from './entities/rider.document.entity';
+import { OperatorDocument } from './entities/operator.document.entity';
+import { AppController } from './app.controller';
+import { SettingsModule } from './settings/settings.module';
+import { Legal } from './entities/legal.entity';
+import { NotificationGateway } from './notification/notification.gateway';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true, // Makes the configuration available globally
+      envFilePath:
+        process.env.NODE_ENV === 'production'
+          ? '.env.production'
+          : '.env.development',
+    }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'mysql',
+        host: configService.get<string>('DB_HOST'),
+        port: +configService.get<number>('DB_PORT'),
+        username: configService.get<string>('DB_USERNAME'),
+        password: configService.get<string>('DB_PASSWORD'),
+        database: configService.get<string>('DB_DATABASE'),
+        entities: [
+          Customer,
+          Operator,
+          Service,
+          Admin,
+          Rider,
+          Bike,
+          RiderDocument,
+          OperatorDocument,
+          Size,
+          Product,
+          Order,
+          PaymentEntity,
+          AdminOTP,
+          CustomerOTP,
+          RiderOTP,
+          OperatorOTP,
+          FAQ,
+          Color,
+          Parcel,
+          Vendor,
+          Zone,
+          Category,
+          Cart,
+          Legal,
+          OperatorActivity,
+          AdminActivity,
+          RiderBank,
+          VendorBank,
+          Address,
+        ],
+        cache: false,
+        synchronize: true,
+        autoLoadEntities: true,
+      }),
+      inject: [ConfigService],
+      // type: 'mysql',
+      // host: configService.get<string>('DB_HOST'), // '',
+      // port: 14646,
+      // username: 'avnadmin',
+      // password: 'AVNS_zhU2Zg8wDPsQL7m_yMA',
+      // database: 'defaultdb',
+
+      // // dropSchema: true,
+      // cache: false,
+      // synchronize: true,
+      // autoLoadEntities: true,
+      // logging: 'all', // Enable query logging
+    }),
+    PassportModule,
+    JwtModule.register({
+      secret:
+        process.env.JWT_SECRET ||
+        'abcdfast123BuyJakasMan123@09nmdhyuDiloe((30(())',
+      signOptions: { expiresIn: '1d' },
+    }),
+    MailerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        transport: {
+          host: configService.get<string>('MAIL_HOST'),
+          port: +configService.get<number>('MAIL_PORT'),
+          secure: true,
+          auth: {
+            user: configService.get<string>('MAIL_USER'),
+            pass: configService.get<string>('MAIL_PASS'),
+          },
+        },
+        defaults: {
+          from: `"FastBuy" <${configService.get<string>('MAIL_USER')}>`,
+        },
+      }),
+      inject: [ConfigService],
+    }),
+    // MailerModule.forRoot({
+    //   transport: {
+    //     host: 'myfastbuy.com', // 'smtp.gmail.com',
+    //     port: 465,
+    //     secure: true,
+    //     auth: {
+    //       user: 'hello@myfastbuy.com', // app.quickpocket@gmail.com',
+    //       pass: 'Q}FzrID8kgk2', // 'savhpzwofeqzrhcd',
+    //     },
+    //   },
+    //   defaults: {
+    //     from: '"FastBuy" <hello@myfastbuy.com>',
+    //   },
+    // }),
+    ServeStaticModule.forRoot(
+      {
+        rootPath: join(__dirname, '..', 'uploads'), // Specify the directory where your upload files are located
+        serveRoot: '/uploads', // Specify the route prefix under which to serve the files
+      },
+      {
+        rootPath: join(__dirname, '..', 'views'),
+        serveRoot: '/views',
+      },
+    ),
+    AuthModule,
+    OperatorModule,
+    AdminModule,
+    CustomerModule,
+    RidersModule,
+    OrdersModule,
+    VendorsModule,
+    ProductsModule,
+    PaymentsModule,
+    ParcelsModule,
+    ZonesModule,
+    BankModule,
+    SettingsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService, NotificationGateway],
+})
+export class AppModule {}
