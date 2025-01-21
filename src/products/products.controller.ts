@@ -84,13 +84,18 @@ export class ProductsController {
     return await this.productService.updateProduct(req?.params?.id, body);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('vendor/:id/all')
   async vendorProducts(
     @Req() req: Request,
     @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
     @Query('limit') limit: number = 25,
+    @Query('categoryId') categoryId?: string,
   ) {
-    return await this.productService.allByVendor(req.params?.id, page, limit);
+    return await this.productService.allByVendor(
+      req.params?.id,
+      page,
+      limit,
+      categoryId,
+    );
   }
 }

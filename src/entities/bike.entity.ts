@@ -3,29 +3,33 @@ import {
   BeforeUpdate,
   Column,
   Entity,
+  JoinColumn,
+  OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { BikeType } from 'src/enums/bike.type.enum';
+import { Color } from './color.entity';
 
 @Entity({ name: 'bikes' })
 export class Bike {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ nullable: false })
-  make: string;
+  @Column({ nullable: true })
+  make?: string;
 
-  @Column({ nullable: false })
-  model: string;
+  @Column({ nullable: true })
+  model?: string;
 
-  @Column({ nullable: false })
-  color: string;
+  @OneToOne(() => Color)
+  @JoinColumn()
+  color: Color;
 
-  @Column({ nullable: false })
-  reg_number: string;
+  @Column({ nullable: true })
+  reg_number?: string;
 
-  @Column({ nullable: false })
-  year_of_manufacture: string;
+  @Column({ nullable: true })
+  year_of_manufacture?: string;
 
   @Column({ type: 'enum', enum: BikeType })
   type: BikeType;

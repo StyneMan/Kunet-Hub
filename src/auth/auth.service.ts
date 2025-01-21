@@ -12,6 +12,8 @@ import { UserType } from 'src/enums/user.type.enum';
 import { RegisterCustomerDTO } from 'src/customer/dtos/registercustomer.dto';
 import { SendOTPDTO } from 'src/commons/dtos/sendotp.dto';
 import { VerifyOTPDTO } from 'src/commons/dtos/verifyotp.dto';
+import { LoginPhoneDTO } from 'src/customer/dtos/loginphone.dto';
+import { VerifyLoginPhoneDTO } from 'src/customer/dtos/verify.login.phone.dto';
 
 @Injectable()
 export class AuthService {
@@ -139,6 +141,14 @@ export class AuthService {
 
   loginCustomer(payload: LoginCustomerDTO) {
     return this.customerService.validateLogin(payload);
+  }
+
+  loginCustomerPhone(payload: LoginPhoneDTO) {
+    return this.customerService.loginPhone(payload);
+  }
+
+  verifyCustomerPhoneLoginOTP(payload: VerifyLoginPhoneDTO) {
+    return this.customerService.verifyPhoneLoginOTP(payload);
   }
 
   sendPasswordResetEmailCustomer(email_address: string) {

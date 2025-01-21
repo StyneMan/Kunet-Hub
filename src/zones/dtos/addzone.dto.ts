@@ -31,6 +31,10 @@ export class AddZoneDTO {
   @IsString()
   name: string;
 
+  @IsNotEmpty()
+  @IsString()
+  region: string;
+
   @IsOptional()
   @IsString()
   description: string;

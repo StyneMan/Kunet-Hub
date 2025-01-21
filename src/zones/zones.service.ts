@@ -8,27 +8,55 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Zone } from 'src/entities/zone.entity';
 import { Repository } from 'typeorm';
 import { AddZoneDTO } from './dtos/addzone.dto';
+import { Admin } from 'src/entities/admin.entity';
+import { AdminRoles } from 'src/enums/admin.roles.enum';
+import { AdminAccess } from 'src/enums/admin.access.enum';
 
 @Injectable()
 export class ZonesService {
   constructor(
     @InjectRepository(Zone)
     private readonly zoneRepository: Repository<Zone>,
+    @InjectRepository(Admin)
+    private adminRepository: Repository<Admin>,
   ) {}
 
   async allZone() {
     return await this.zoneRepository.find({});
   }
 
-  async addZone(payload: AddZoneDTO) {
+  async addZone(email_address: string, payload: AddZoneDTO) {
     if (!payload) {
       throw new HttpException('Payload not provided!', HttpStatus.BAD_REQUEST);
+    }
+
+    const adm = await this.adminRepository.findOne({
+      where: { email_address },
+    });
+
+    if (!adm)
+      throw new HttpException('No admin record found.', HttpStatus.NOT_FOUND);
+
+    if (
+      adm.role !== AdminRoles.SUPER_ADMIN &&
+      adm.role !== AdminRoles.MANAGER &&
+      adm.role !== AdminRoles.DEVELOPER &&
+      adm.access !== AdminAccess.READ_WRITE
+    ) {
+      throw new HttpException(
+        {
+          status: HttpStatus.BAD_REQUEST,
+          message: 'You do not have necessary privileges for this action',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const newZone = this.zoneRepository.create({
       boundary: payload.boundary,
       description: payload?.description,
       name: payload?.name,
+      region: payload?.region,
     });
 
     await this.zoneRepository.save(newZone);
@@ -67,9 +95,32 @@ export class ZonesService {
     return zone;
   }
 
-  async updateZone(zoneId: string, payload: AddZoneDTO) {
+  async updateZone(email_address: string, zoneId: string, payload: AddZoneDTO) {
     if (!payload) {
       throw new HttpException('Payload not provided!', HttpStatus.BAD_REQUEST);
+    }
+
+    const adm = await this.adminRepository.findOne({
+      where: { email_address },
+    });
+
+    if (!adm)
+      throw new HttpException('No admin record found.', HttpStatus.NOT_FOUND);
+
+    if (
+      adm.role !== AdminRoles.SUPER_ADMIN &&
+      adm.role !== AdminRoles.EDITOR &&
+      adm.role !== AdminRoles.MANAGER &&
+      adm.role !== AdminRoles.DEVELOPER &&
+      adm.access !== AdminAccess.READ_WRITE
+    ) {
+      throw new HttpException(
+        {
+          status: HttpStatus.BAD_REQUEST,
+          message: 'You do not have necessary privileges for this action',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const zone = await this.zoneRepository.findOne({
@@ -86,12 +137,12 @@ export class ZonesService {
       );
     }
 
-    zone.boundary = payload.boundary;
-    zone.description = payload.description;
-    zone.name = payload.name;
-    zone.updated_at = new Date();
+    const updateZone = this.zoneRepository.create({
+      ...zone,
+      ...payload,
+    });
 
-    const updatedZone = await this.zoneRepository.save(zone);
+    const updatedZone = await this.zoneRepository.save(updateZone);
 
     return {
       message: 'Zone updated successfully',
@@ -99,12 +150,35 @@ export class ZonesService {
     };
   }
 
-  async deleteZone(zoneId: string) {
-    const product = await this.zoneRepository.findOne({
+  async deleteZone(email_address: string, zoneId: string) {
+    const adm = await this.adminRepository.findOne({
+      where: { email_address },
+    });
+
+    if (!adm)
+      throw new HttpException('No admin record found.', HttpStatus.NOT_FOUND);
+
+    if (
+      adm.role !== AdminRoles.SUPER_ADMIN &&
+      adm.role !== AdminRoles.EDITOR &&
+      adm.role !== AdminRoles.MANAGER &&
+      adm.role !== AdminRoles.DEVELOPER &&
+      adm.access !== AdminAccess.READ_WRITE
+    ) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          message: 'You do not have necessary privileges for this action',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const zone = await this.zoneRepository.findOne({
       where: { id: zoneId },
     });
 
-    if (!product) {
+    if (!zone) {
       throw new NotFoundException('Zone not found');
     }
 

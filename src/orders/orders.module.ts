@@ -8,6 +8,7 @@ import { Order } from 'src/entities/order.entity';
 import { Operator } from 'src/entities/operator.entity';
 import { Rider } from 'src/entities/rider.entity';
 import { Product } from 'src/entities/product.entity';
+import { CommissionAndFee } from 'src/entities/fee.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { Product } from 'src/entities/product.entity';
       Operator,
       Rider,
       Product,
+      CommissionAndFee,
     ]),
   ],
   controllers: [OrdersController],

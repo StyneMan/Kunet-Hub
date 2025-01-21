@@ -20,6 +20,12 @@ export class Zone {
   name: string;
 
   @Column({
+    nullable: false,
+    default: '',
+  })
+  region: string;
+
+  @Column({
     type: 'geometry', // Using the MySQL `geometry` type to store spatial data
     spatialFeatureType: 'Polygon',
     srid: 4326, // Spatial Reference System Identifier (WGS 84)

@@ -57,73 +57,66 @@ export class OperatorAuthService {
   }
 
   async sendOTP({ email_address }: SendOTPDTO) {
-    try {
-      console.log('User Payload from Client :: ', email_address);
-      if (!email_address) {
-        throw new HttpException(
-          'Payload not provided !!!',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-      const userData =
-        await this.operatorService.findOperatorByUsername(email_address);
-      if (!userData) {
-        throw new HttpException(
-          'User email is not registered on this platform!',
-          HttpStatus.NOT_FOUND,
-        );
-      }
+    console.log('User Payload from Client :: ', email_address);
+    if (!email_address) {
+      throw new HttpException('Payload not provided !!!', HttpStatus.FORBIDDEN);
+    }
+    const userData =
+      await this.operatorService.findOperatorByUsername(email_address);
+    if (!userData) {
+      throw new HttpException(
+        'User email is not registered on this platform!',
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
-      console.log('LJSK::: ', userData);
+    console.log('LJSK::: ', userData);
 
-      // Send OTP Code here
-      const otpCode = generateOTP();
-      console.log(otpCode);
+    // Send OTP Code here
+    const otpCode = generateOTP();
+    console.log(otpCode);
 
-      const emailSent = await this.mailerService.sendMail({
-        to: email_address,
-        subject: 'New OTP Sent',
-        html: verificationEmailContent(otpCode, userData?.first_name),
-      });
+    const emailSent = await this.mailerService.sendMail({
+      to: email_address,
+      subject: 'New OTP Sent',
+      html: verificationEmailContent(otpCode, userData?.first_name),
+    });
 
-      const currentUserOTP = await this.otpRepository.findOne({
-        where: { user: userData },
-      });
-      if (currentUserOTP) {
-        // OTP Already exists for this user so update it here
-        await this.otpRepository.update(
-          { user: userData },
-          {
-            code: otpCode,
-            expired: false,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000),
-            updated_at: new Date(),
-          },
-        );
-      } else {
-        // No OTP so add new
-        const newOTP = this.otpRepository.create({
+    const currentUserOTP = await this.otpRepository.findOne({
+      where: { user: userData },
+    });
+    if (currentUserOTP) {
+      // OTP Already exists for this user so update it here
+      await this.otpRepository.update(
+        { user: userData },
+        {
           code: otpCode,
-          user: userData,
           expired: false,
           expires_at: new Date(Date.now() + 10 * 60 * 1000),
-          created_at: new Date(),
           updated_at: new Date(),
-        });
-        await this.otpRepository.save(newOTP);
-      }
+        },
+      );
+    } else {
+      // No OTP so add new
+      const newOTP = this.otpRepository.create({
+        code: otpCode,
+        user: userData,
+        expired: false,
+        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      await this.otpRepository.save(newOTP);
+    }
 
-      if (emailSent) {
-        return {
-          message: 'OTP email sent successfully',
-        };
-      } else {
-        return {
-          message: 'Failed to send OTP email',
-        };
-      }
-    } catch (error) {
-      console.log('ERR :: EMAIL ', error);
+    if (emailSent) {
+      return {
+        message: 'OTP email sent successfully',
+      };
+    } else {
+      return {
+        message: 'Failed to send OTP email',
+      };
     }
   }
 

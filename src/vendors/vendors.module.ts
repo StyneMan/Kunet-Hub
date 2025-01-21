@@ -11,6 +11,7 @@ import { Zone } from 'src/entities/zone.entity';
 import { OperatorDocument } from 'src/entities/operator.document.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
+import { Customer } from 'src/entities/customer.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
       Admin,
       Zone,
       Category,
+      Customer,
       VendorWallet,
       OperatorDocument,
       VendorTransactions,

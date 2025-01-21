@@ -2,8 +2,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
-  // OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Rider } from './rider.entity';
@@ -22,7 +21,7 @@ export class RiderDocument {
   @Column({ nullable: true })
   back_view: string;
 
-  @OneToOne(() => Rider)
+  @ManyToOne(() => Rider)
   @JoinColumn()
   owner: Rider;
 

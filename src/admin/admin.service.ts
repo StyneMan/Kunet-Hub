@@ -47,6 +47,34 @@ export class AdminService {
 
   async createAdmin(createAdminDto: CreateAdminDTO) {
     try {
+      // First check if customer already exist
+      const adminFound = await this.adminRepository.findOne({
+        where: { email_address: createAdminDto?.email_address },
+      });
+      if (adminFound) {
+        throw new HttpException(
+          {
+            message: 'Email address already taken!',
+            status: HttpStatus.FORBIDDEN,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      // First check if phone exist
+      const adminPhone = await this.adminRepository.findOne({
+        where: { phone_number: createAdminDto?.phone_number },
+      });
+      if (adminPhone) {
+        throw new HttpException(
+          {
+            message: 'Phone number already taken!',
+            status: HttpStatus.FORBIDDEN,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
       const generatedPassword = generateRandomPassword();
       const encodedPassword = await encodePassword(generatedPassword);
       const newAdmin = this.adminRepository.create({
@@ -123,6 +151,10 @@ export class AdminService {
       where: { email_address: email_address },
     });
 
+    if (!admin) {
+      return null;
+    }
+
     const { password, ...rest } = admin;
     console.log(password);
 
@@ -190,18 +222,21 @@ export class AdminService {
   }
 
   async updateAdmin(email_address: string, payload: any) {
-    // console.log('PAYLOAD PROFILE UPDATE ::: ', payload);
+    console.log('PAYLOAD PROFILE UPDATE ::: ', payload);
 
     if (!payload) {
       throw new HttpException('Payload not provided!', HttpStatus.BAD_REQUEST);
     }
 
+    console.log('EMA ::: ', email_address);
+
     const user = await this.adminRepository.findOne({
       where: { email_address: email_address },
     });
 
-    if (!user)
+    if (!user) {
       throw new HttpException('No record found.', HttpStatus.NOT_FOUND);
+    }
 
     await this.adminRepository.update(
       { email_address: email_address },
@@ -378,120 +413,6 @@ export class AdminService {
 
       return {
         message: 'Admin account deleted successfully',
-        data: null,
-      };
-    } catch (error) {
-      console.log(error);
-    }
-  }
-
-  async suspendRider(email_address: string, id: string) {
-    try {
-      //First check if user exist and marketplace exists
-      const adm = await this.adminRepository.findOne({
-        where: { email_address: email_address },
-      });
-      if (!adm) {
-        throw new HttpException('No admin found.', HttpStatus.NOT_FOUND);
-      }
-
-      if (
-        adm.role !== 'manager' &&
-        adm.role !== 'developer' &&
-        adm.access !== 'read/write'
-      ) {
-        throw new HttpException(
-          {
-            status: HttpStatus.BAD_REQUEST,
-            message: 'You do not hava necessary privileges for this action',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const foundRider = await this.riderRepository.findOne({
-        where: { id: id },
-      });
-      if (!foundRider) {
-        throw new HttpException(
-          'Admin record not found.',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-      await this.riderRepository.update(
-        { id: foundRider?.id }, // Update condition
-        { status: UserStatus.SUSPENDED }, // New values to set
-      );
-
-      const activity = this.activitiesRepository.create({
-        name: 'Rider Account Suspension',
-        description: `${adm?.first_name} ${adm?.last_name} suspended the rider account (${foundRider?.first_name} ${foundRider?.last_name})`,
-        created_at: new Date(),
-        updated_at: new Date(),
-      });
-      activity.user = adm;
-      this.activitiesRepository.save(activity);
-
-      return {
-        message: 'Rider account suspended successfully',
-        data: null,
-      };
-    } catch (error) {
-      console.log(error);
-    }
-  }
-
-  async pardonRider(email_address: string, id: string) {
-    try {
-      //First check if user exist and marketplace exists
-      const adm = await this.adminRepository.findOne({
-        where: { email_address: email_address },
-      });
-      if (!adm) {
-        throw new HttpException('No admin found.', HttpStatus.NOT_FOUND);
-      }
-
-      if (
-        adm.role !== 'manager' &&
-        adm.role !== 'developer' &&
-        adm.access !== 'read/write'
-      ) {
-        throw new HttpException(
-          {
-            status: HttpStatus.BAD_REQUEST,
-            message: 'You do not hava necessary privileges for this action',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const foundRider = await this.riderRepository.findOne({
-        where: { id: id },
-      });
-      if (!foundRider) {
-        throw new HttpException(
-          'Rider record not found.',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      await this.riderRepository.update(
-        { id: id },
-        { status: UserStatus.ACTIVE, updated_at: new Date() },
-      );
-
-      const activity = this.activitiesRepository.create({
-        name: 'Rider Account Pardoned',
-        created_at: new Date(),
-        updated_at: new Date(),
-        description: `${adm?.first_name} ${adm?.last_name} pardoned the rider account (${foundRider?.first_name} ${foundRider?.last_name})`,
-      });
-
-      activity.user = adm;
-      await this.activitiesRepository.save(activity);
-
-      return {
-        message: 'Rider account pardoned successfully',
         data: null,
       };
     } catch (error) {

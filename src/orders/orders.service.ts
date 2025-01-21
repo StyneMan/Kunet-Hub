@@ -16,6 +16,9 @@ import { UpdateOrderDTO } from './dtos/updateorder.dto';
 import { Rider } from 'src/entities/rider.entity';
 import { OrderType } from 'src/enums/order.type.enum';
 import { OrderStatus } from 'src/enums/order.status.enum';
+import { CalculateParcelCostDTO } from './dtos/calculate.parcel.cost.dto';
+import { CommissionAndFee } from 'src/entities/fee.entity';
+import { ShippingType } from 'src/enums/shipping.type.enum';
 
 @Injectable()
 export class OrdersService {
@@ -30,6 +33,8 @@ export class OrdersService {
     private operatorRepository: Repository<Operator>,
     @InjectRepository(Vendor)
     private vendorRepository: Repository<Vendor>,
+    @InjectRepository(CommissionAndFee)
+    private feesRepository: Repository<CommissionAndFee>,
   ) {}
 
   async createOrder(
@@ -214,33 +219,27 @@ export class OrdersService {
     }
   }
 
-  async all(page: number, limit: number, type: OrderType) {
-    if (type) {
+  async all(page: number, limit: number, order_type: OrderType) {
+    if (order_type) {
       const skip = (page - 1) * limit; // Calculate the number of records to skip
       // Get paginated data and total count
       const [data, total] = await Promise.all([
         this.orderRepository
           .createQueryBuilder('order') // Alias for the table
+          .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
           .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
-          // .select([
-          //   'activity',
-          //   'admin.first_name',
-          //   'admin.last_name',
-          //   'admin.emai_address',
-          //   'admin.phone_number',
-          //   'admin.photo_url',
-          //   'admin.role',
-          //   'admin.type',
-          // ]) // Select only the required fields
-          .where('order.order_type = :type', { type }) // Filter by vendor ID
+          .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+          .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
           .getMany(), // Execute query to fetch data
 
-        this.vendorRepository
+        this.orderRepository
           .createQueryBuilder('order') // Alias for the table
+          .leftJoin('order.customer', 'customer') // Join the related vendor table
           .leftJoin('order.vendor', 'vendor') // Join the related vendor table
-          .where('order.order_type = :type', { type }) // Filter by vendor ID
+          .leftJoin('order.rider', 'rider') // Join the related vendor table
+          .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
           .getCount(), // Count total records for pagination
       ]);
 
@@ -435,6 +434,45 @@ export class OrdersService {
       totalPages: Math.ceil(total / limit),
       totalItems: total,
       perPage: limit,
+    };
+  }
+
+  async calculateParcelDeliveryCost(payload: CalculateParcelCostDTO) {
+    if (!payload) {
+      throw new HttpException('Payload not provided', HttpStatus.BAD_REQUEST);
+    }
+
+    const platformFees = await this.feesRepository.find({});
+    if (!platformFees || platformFees?.length == 0) {
+      throw new HttpException(
+        'Platform fees not initialized by admin',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const fees = platformFees[0];
+    let extraCost = 0;
+    const weightCharge = payload?.totalWeight * fees?.delivery_charge_per_kg;
+    const deliveryDistance = 2.0; // Assuming distance from sender to reciever is 2km. This is where distance API comes i
+    const distanceCharge = deliveryDistance * fees?.delivery_charge_per_km;
+    const serviceCharge = fees?.service_charge;
+    const riderCharge = fees?.rider_commission_per_km * deliveryDistance;
+
+    if (payload?.shippingType !== ShippingType.REGULAR) {
+      if (payload?.shippingType === ShippingType.EXPRESS) {
+        extraCost = distanceCharge * 10;
+      } else {
+        extraCost = distanceCharge * 20;
+      }
+    }
+
+    const totalCost = weightCharge + serviceCharge + riderCharge + extraCost;
+
+    return {
+      message: 'Operation successful',
+      service_charge: serviceCharge,
+      delivery_time: 2,
+      total_cost: totalCost,
     };
   }
 }

@@ -28,6 +28,19 @@ import { Vendor } from 'src/entities/vendor.entity';
 import { RiderTransactions } from 'src/entities/rider.transactions.entity';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { RiderDocument } from 'src/entities/rider.document.entity';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { SmsService } from 'src/sms/sms.service';
+import { PlivoService } from 'src/sms/providers/plivo.service';
+import { TwilioService } from 'src/sms/providers/twilio.service';
+import { BroadnetService } from 'src/sms/providers/broadnet.service';
+import { SendChampService } from 'src/sms/providers/sendchamp.service';
+import { ShippingAddress } from 'src/entities/shipping.address.entity';
+import { TermiiService } from 'src/sms/providers/termii.service';
+import { CustomerWallet } from 'src/entities/customer.wallet.entity';
+import { PackOption } from 'src/entities/pack.option.entity';
+import { CustomerFavourites } from 'src/entities/customer.favourites.entity';
+import { CartItem } from 'src/entities/cart.item.entity';
+import { SocketModule } from 'src/socket/socket.module';
 
 @Module({
   imports: [
@@ -45,27 +58,42 @@ import { RiderDocument } from 'src/entities/rider.document.entity';
       Product,
       Zone,
       Vendor,
+      CartItem,
+      PackOption,
       RiderWallet,
       RiderDocument,
+      SMSProviders,
+      CustomerWallet,
+      ShippingAddress,
       RiderTransactions,
+      CustomerFavourites,
     ]),
     PassportModule,
     JwtModule.register({
-      secret: 'abc123JakasMan123@09nmdhyuDiloe((30(())',
+      secret:
+        process.env.JWT_SECRET ||
+        'abcdfast123BuyJakasMan123@09nmdhyuDiloe((30(())',
       signOptions: { expiresIn: '1d' },
     }),
+    SocketModule,
   ],
   controllers: [AdminController],
   providers: [
+    SmsService,
     ZonesService,
     AdminService,
     CustomerService,
     RidersService,
     OperatorService,
     AdminAuthService,
-    CustomerAuthService,
     RiderAuthService,
+    CustomerAuthService,
     OperatorAuthService,
+    PlivoService,
+    TwilioService,
+    TermiiService,
+    BroadnetService,
+    SendChampService,
   ],
 })
 export class AdminModule {}

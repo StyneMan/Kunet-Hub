@@ -9,6 +9,7 @@ import { Admin } from 'src/entities/admin.entity';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { RiderTransactions } from 'src/entities/rider.transactions.entity';
 import { RiderDocument } from 'src/entities/rider.document.entity';
+import { AdminActivity } from 'src/entities/admin.activity.entity';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { RiderDocument } from 'src/entities/rider.document.entity';
       RiderWallet,
       RiderDocument,
       RiderTransactions,
+      AdminActivity,
     ]),
   ],
   providers: [RidersService, ZonesService],

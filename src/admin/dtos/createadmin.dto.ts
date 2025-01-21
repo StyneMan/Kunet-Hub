@@ -4,6 +4,8 @@ import {
   IsNotEmpty,
   IsString,
   IsEnum,
+  IsArray,
+  IsOptional,
 } from 'class-validator';
 import { AdminAccess } from 'src/enums/admin.access.enum';
 import { AdminRoles } from 'src/enums/admin.roles.enum';
@@ -42,4 +44,8 @@ export class CreateAdminDTO {
   @IsNotEmpty()
   @IsEnum(AdminAccess)
   access: AdminAccess;
+
+  @IsOptional()
+  @IsArray()
+  permissions?: string[];
 }

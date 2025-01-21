@@ -2,7 +2,7 @@ export default function generateRandomPassword(length = 8) {
   const upperCaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const lowerCaseChars = 'abcdefghijklmnopqrstuvwxyz';
   const numberChars = '0123456789';
-  const specialChars = '!@#$%^&*()_+[]{}|;:,.<>?';
+  const specialChars = '!@#$%^&*()_+[]{}|;:<>?';
 
   // Ensure the password contains at least one of each required character type
   const passwordArray = [

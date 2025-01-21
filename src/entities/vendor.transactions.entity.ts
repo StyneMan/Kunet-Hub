@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Vendor } from './vendor.entity';
@@ -33,7 +33,7 @@ export class VendorTransactions {
   @Column({ nullable: false })
   summary: string;
 
-  @OneToOne(() => Vendor, { nullable: false })
+  @ManyToOne(() => Vendor, { nullable: false })
   @JoinColumn()
   vendor: Vendor;
 

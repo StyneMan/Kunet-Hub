@@ -55,6 +55,31 @@ export class RidersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/suspend')
+  async suspendRider(@Req() req: any) {
+    console.log('Admiin :::: ', req?.params);
+
+    return await this.riderService.suspendRider(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/pardon')
+  async pardonRider(@Req() req: any) {
+    return await this.riderService.pardonRider(req?.user?.sub, req?.params?.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/update')
+  async updateRider(@Req() req: any) {
+    console.log('Admiin :::: ', req?.params);
+
+    return await this.riderService.updateUser(req?.params?.id, req?.body);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('transaction/all')
   async transactions(
     @Query('startDate') startDate?: Date,

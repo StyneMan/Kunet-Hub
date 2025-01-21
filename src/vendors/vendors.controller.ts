@@ -25,14 +25,15 @@ import { UpdateVendorDTO } from './dtos/updatevendor.dto';
 export class VendorsController {
   constructor(private vendorService: VendorsService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get('all')
   async allVendors(
     @Query('type') type: VendorType,
     @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
     @Query('limit') limit: number = 25,
   ) {
-    return await this.vendorService.findVendors(page, limit, type);
+    const resp = await this.vendorService.findVendors(page, limit, type);
+
+    return resp;
   }
 
   @UseGuards(JwtAuthGuard)
@@ -58,6 +59,8 @@ export class VendorsController {
     }),
   )
   async createVendor(@Req() req: any, @Body() body: CreateVendorDTO) {
+    console.log('CREATE VENDDOR PAYLOAD :: ', body);
+
     return await this.vendorService.createVendor(req?.user?.sub, body);
   }
 
@@ -147,7 +150,6 @@ export class VendorsController {
     return await this.vendorService.addCategory(req?.user?.sub, body);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('category/all')
   async categories(
     @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
@@ -156,7 +158,6 @@ export class VendorsController {
     return await this.vendorService.findAllCategories(page, limit);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get(':id/categories')
   async vendorCategories(
     @Req() req: Request,

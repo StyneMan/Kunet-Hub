@@ -54,6 +54,7 @@ export class VendorsService {
           .createQueryBuilder('vendor') // Alias for the table
           .leftJoinAndSelect('vendor.zone', 'zone') // Join the related admin table
           .leftJoinAndSelect('vendor.owner', 'owner')
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .where('vendor.vendor_type = :vendor_type', { vendor_type }) // Filter by vendor ID
           .andWhere('vendor.status != :status', {
             status: VendorStatus.DELETED,
@@ -65,6 +66,7 @@ export class VendorsService {
         this.vendorRepository
           .createQueryBuilder('vendor') // Alias for the table
           .leftJoin('vendor.owner', 'owner') // Join the related vendor table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .where('vendor.vendor_type = :vendor_type', { vendor_type }) // Filter by vendor ID
           .andWhere('vendor.status != :status', {
             status: VendorStatus.DELETED,
@@ -87,6 +89,7 @@ export class VendorsService {
         this.vendorRepository
           .createQueryBuilder('vendor') // Alias for the Admin table
           .leftJoinAndSelect('vendor.zone', 'zone') // Join the related admin table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .leftJoinAndSelect('vendor.owner', 'owner') // Join the related admin table
           .select([
             'vendor',
@@ -169,7 +172,12 @@ export class VendorsService {
       where: { email_address: ownerEmail },
     });
 
-    if (operatorFound) {
+    // First check if zone exist
+    const operatorPhone = await this.operatorRepository.findOne({
+      where: { phone_number: phone_number },
+    });
+
+    if (operatorFound || operatorPhone) {
       throw new HttpException(
         {
           status: HttpStatus.BAD_REQUEST,

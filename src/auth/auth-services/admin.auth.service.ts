@@ -1,16 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { comparePasswords, encodePassword } from 'src/utils/bcrypt';
 import { generateOTP } from 'src/utils/otp_generator';
 import { MailerService } from '@nestjs-modules/mailer';
 import {
   passwordEmailContent,
-  userOnboardingEmailContent,
   verificationEmailContent,
 } from 'src/utils/email';
-import { OTPPayloadDto } from 'src/otp/dto/otp.dto';
-import { LoginCustomerDTO } from 'src/customer/dtos/logincustomer.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -103,81 +100,77 @@ export class AdminAuthService {
   }
 
   async sendOTP(payload: SendOTPDTO) {
-    try {
-      console.log('User Payload from Client :: ', payload?.email_address);
-      if (!payload) {
-        throw new HttpException(
-          {
-            message: 'Payload not provided !!!',
-            status: HttpStatus.FORBIDDEN,
-          },
-          HttpStatus.FORBIDDEN,
-        );
-      }
-
-      const userData = await this.adminService.findAdminByAdminname(
-        payload?.email_address,
+    console.log('User Payload from Client :: ', payload?.email_address);
+    if (!payload) {
+      throw new HttpException(
+        {
+          message: 'Payload not provided !!!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
       );
-      if (!userData) {
-        throw new HttpException(
-          {
-            message: 'User email is not registered on this platform!',
-            status: HttpStatus.NOT_FOUND,
-          },
-          HttpStatus.NOT_FOUND,
-        );
-      }
+    }
 
-      console.log('LJSK::: ', userData);
+    const userData = await this.adminService.findAdminByAdminname(
+      payload?.email_address,
+    );
+    if (!userData) {
+      throw new HttpException(
+        {
+          message: 'User email is not registered on this platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
-      // Send OTP Code here
-      const otpCode = generateOTP();
-      console.log(otpCode);
+    console.log('LJSK::: ', userData);
 
-      const emailSent = await this.mailerService.sendMail({
-        to: payload?.email_address,
-        subject: 'New OTP Sent',
-        html: verificationEmailContent(otpCode, userData?.first_name),
-      });
+    // Send OTP Code here
+    const otpCode = generateOTP();
+    console.log(otpCode);
 
-      const currentUserOTP = await this.otpRepository.findOne({
-        where: { user: userData },
-      });
-      if (currentUserOTP) {
-        // OTP Already exists for this user so update it here
-        await this.otpRepository.update(
-          { user: userData },
-          {
-            code: otpCode,
-            expired: false,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000),
-            updated_at: new Date(),
-          },
-        );
-      } else {
-        // No OTP so add new
-        const newOTP = this.otpRepository.create({
+    const emailSent = await this.mailerService.sendMail({
+      to: payload?.email_address,
+      subject: 'New OTP Sent',
+      html: verificationEmailContent(otpCode, userData?.first_name),
+    });
+
+    const currentUserOTP = await this.otpRepository.findOne({
+      where: { user: userData },
+    });
+    if (currentUserOTP) {
+      // OTP Already exists for this user so update it here
+      await this.otpRepository.update(
+        { user: userData },
+        {
           code: otpCode,
-          user: userData,
           expired: false,
           expires_at: new Date(Date.now() + 10 * 60 * 1000),
-          created_at: new Date(),
           updated_at: new Date(),
-        });
-        await this.otpRepository.save(newOTP);
-      }
+        },
+      );
+    } else {
+      // No OTP so add new
+      const newOTP = this.otpRepository.create({
+        code: otpCode,
+        user: userData,
+        expired: false,
+        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      await this.otpRepository.save(newOTP);
+    }
 
-      if (emailSent) {
-        return {
-          message: 'OTP email sent successfully',
-        };
-      } else {
-        return {
-          message: 'Failed to send OTP email',
-        };
-      }
-    } catch (error) {
-      console.log('ERR :: EMAIL ', error);
+    if (emailSent) {
+      return {
+        message: 'OTP email sent successfully',
+      };
+    } else {
+      return {
+        message: 'Failed to send OTP email',
+      };
     }
   }
 

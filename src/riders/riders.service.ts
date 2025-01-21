@@ -17,6 +17,7 @@ import { UserStatus } from 'src/enums/user.status.enum';
 import { RiderTransactions } from 'src/entities/rider.transactions.entity';
 import { TopupWalletDTO } from './dtos/topupwallet.dto';
 import { RiderDocument } from 'src/entities/rider.document.entity';
+import { AdminActivity } from 'src/entities/admin.activity.entity';
 
 @Injectable()
 export class RidersService {
@@ -31,6 +32,8 @@ export class RidersService {
     private readonly transactionRepository: Repository<RiderTransactions>,
     @InjectRepository(RiderDocument)
     private readonly documentRepository: Repository<RiderDocument>,
+    @InjectRepository(AdminActivity)
+    private readonly activitiesRepository: Repository<AdminActivity>,
     private zoneService: ZonesService,
     private mailerService: MailerService,
   ) {}
@@ -89,6 +92,34 @@ export class RidersService {
       );
     }
 
+    // First check if rider already exist
+    const riderFound = await this.riderRepository.findOne({
+      where: { email_address: createRiderDto?.email_address },
+    });
+    if (riderFound) {
+      throw new HttpException(
+        {
+          message: 'Email address already taken!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // First check if zone exist
+    const riderPhone = await this.riderRepository.findOne({
+      where: { phone_number: createRiderDto?.phone_number },
+    });
+    if (riderPhone) {
+      throw new HttpException(
+        {
+          message: 'Phone number already taken!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
     // First check if zone exist
     const zone = await this.zoneService.findZoneById(createRiderDto.zoneId);
     if (!zone) {
@@ -125,9 +156,9 @@ export class RidersService {
     });
 
     newUser.zone = zone;
-    this.riderRepository.save(newUser);
+    await this.riderRepository.save(newUser);
 
-    //Now save owner documents here
+    //Now save rider documents here
     const doc = this.documentRepository.create({
       name: `${newUser?.first_name} ${newUser?.last_name}\'s ${newUser?.identity_type}`,
       front_view: createRiderDto?.front_view,
@@ -137,6 +168,16 @@ export class RidersService {
     });
     doc.owner = newUser;
     await this.documentRepository.save(doc);
+
+    // Now create wallet as well
+    const wallet = this.walletRepository.create({
+      balance: 0.0,
+      prev_balance: 0.0,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    wallet.rider = newUser;
+    await this.walletRepository.save(wallet);
 
     // Now send this passwordd to rider's email address
     await this.mailerService.sendMail({
@@ -188,14 +229,14 @@ export class RidersService {
       }
 
       const user = await this.riderRepository.findOne({
-        where: { email_address: id },
+        where: { id: id },
       });
       if (!user)
         throw new HttpException('No user found.', HttpStatus.NOT_FOUND);
 
-      await this.riderRepository.update({ email_address: id }, { ...payload });
+      await this.riderRepository.update({ id: id }, { ...payload });
       const updatedUser = await this.riderRepository.findOne({
-        where: { email_address: id },
+        where: { id: id },
       });
 
       const { password, ...others } = updatedUser;
@@ -217,6 +258,173 @@ export class RidersService {
       return {
         message: error?.response?.data?.message || 'An error occurred!',
       };
+    }
+  }
+
+  async suspendRider(email_address: string, id: string) {
+    try {
+      //First check if user exist and marketplace exists
+      const adm = await this.adminRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!adm) {
+        throw new HttpException('No admin found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (
+        adm.role !== AdminRoles.SUPER_ADMIN &&
+        adm.role !== AdminRoles.DEVELOPER &&
+        adm.access !== AdminAccess.READ_WRITE
+      ) {
+        throw new HttpException(
+          {
+            status: HttpStatus.BAD_REQUEST,
+            message: 'You do not hava necessary privileges for this action',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const foundRider = await this.riderRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundRider) {
+        throw new HttpException(
+          'Admin record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      await this.riderRepository.update(
+        { id: foundRider?.id }, // Update condition
+        { status: UserStatus.SUSPENDED }, // New values to set
+      );
+
+      const activity = this.activitiesRepository.create({
+        name: 'Rider Account Suspension',
+        description: `${adm?.first_name} ${adm?.last_name} suspended the rider account (${foundRider?.first_name} ${foundRider?.last_name})`,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      activity.user = adm;
+      this.activitiesRepository.save(activity);
+
+      return {
+        message: 'Rider account suspended successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async pardonRider(email_address: string, id: string) {
+    try {
+      //First check if user exist and marketplace exists
+      const adm = await this.adminRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!adm) {
+        throw new HttpException('No admin found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (
+        adm.role !== AdminRoles.SUPER_ADMIN &&
+        adm.role !== AdminRoles.DEVELOPER &&
+        adm.access !== AdminAccess.READ_WRITE
+      ) {
+        throw new HttpException(
+          {
+            status: HttpStatus.BAD_REQUEST,
+            message: 'You do not hava necessary privileges for this action',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const foundRider = await this.riderRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundRider) {
+        throw new HttpException(
+          'Rider record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.riderRepository.update(
+        { id: id },
+        { status: UserStatus.ACTIVE, updated_at: new Date() },
+      );
+
+      const activity = this.activitiesRepository.create({
+        name: 'Rider Account Pardoned',
+        created_at: new Date(),
+        updated_at: new Date(),
+        description: `${adm?.first_name} ${adm?.last_name} pardoned the rider account (${foundRider?.first_name} ${foundRider?.last_name})`,
+      });
+
+      activity.user = adm;
+      await this.activitiesRepository.save(activity);
+
+      return {
+        message: 'Rider account pardoned successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async deleteRider(email_address: string, id: string) {
+    try {
+      //First check if user exist and marketplace exists
+      const adm = await this.adminRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!adm) {
+        throw new HttpException('No admin found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (
+        adm.role !== AdminRoles.SUPER_ADMIN &&
+        adm.role !== AdminRoles.DEVELOPER &&
+        adm.access !== AdminAccess.READ_WRITE
+      ) {
+        throw new HttpException(
+          {
+            status: HttpStatus.BAD_REQUEST,
+            message: 'You do not hava necessary privileges for this action',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const foundAdmin = await this.adminRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundAdmin) {
+        throw new HttpException(
+          'Admin record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const activity = this.activitiesRepository.create({
+        name: 'Account Account deleted',
+        description: `${adm?.first_name} ${adm?.last_name} deleted the admin account (${foundAdmin?.first_name} ${foundAdmin?.last_name}) on ${Date.now().toLocaleString('en-US')}`,
+        user: adm,
+      });
+
+      await this.activitiesRepository.save(activity);
+
+      await this.adminRepository.delete({ id: id });
+
+      return {
+        message: 'Admin account deleted successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
     }
   }
 

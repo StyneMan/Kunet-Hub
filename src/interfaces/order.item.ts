@@ -1,7 +1,12 @@
+import SelectionItemI from './selection.item';
+
 export default interface OrderItemI {
-  price: number;
+  price?: number;
   quantity: number;
+  weight?: number;
+  dimen?: string;
   name: string;
   images: string[];
-  product: string;
+  productId?: string;
+  selections?: SelectionItemI[];
 }

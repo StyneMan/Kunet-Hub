@@ -18,6 +18,7 @@ import { CreateOrderDTO } from './dtos/createorder.dto';
 import { UserType } from 'src/enums/user.type.enum';
 import { Request } from 'express';
 import { OrderStatus } from 'src/enums/order.status.enum';
+import { CalculateParcelCostDTO } from './dtos/calculate.parcel.cost.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -71,6 +72,35 @@ export class OrdersController {
     @Query('user_type') user_type: UserType = UserType.CUSTOMER,
   ) {
     return await this.orderService.createOrder(req?.user?.sub, user_type, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('logistics/estimate')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async estimateParcelDelivery(
+    @Req() req: any,
+    @Body() body: CalculateParcelCostDTO,
+  ) {
+    return await this.orderService.calculateParcelDeliveryCost(body);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -1,19 +1,47 @@
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
+import SelectionItemI from 'src/interfaces/selection.item';
 
-export class AddToCartDTO {
+export class CartItemDTO {
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
   @IsNotEmpty()
   @IsNumber()
   amount: number;
 
   @IsNotEmpty()
+  @IsString()
+  product_id: string;
+
+  @IsOptional()
+  @IsArray()
+  selections?: SelectionItemI[];
+
+  @IsNotEmpty()
   @IsNumber()
-  quantity: number;
+  total_amount: number;
+}
+
+export class AddToCartDTO {
+  @IsNotEmpty()
+  @IsNumber()
+  total_amount: number;
+
+  @IsNotEmpty()
+  item: CartItemDTO;
 
   @IsNotEmpty()
   @IsString()
-  productId: string;
+  vendor_id: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  customerId: string;
+  vendor_note?: string;
 }

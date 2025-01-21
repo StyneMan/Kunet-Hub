@@ -4,11 +4,14 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Product } from './product.entity';
 import { Customer } from './customer.entity';
+import { Vendor } from './vendor.entity';
+import { CartItem } from './cart.item.entity';
+import { Exclude } from 'class-transformer';
 
 @Entity({ name: 'carts' })
 export class Cart {
@@ -16,18 +19,25 @@ export class Cart {
   id: string;
 
   @Column({ nullable: false })
-  amount: number;
+  total_amount: number;
 
-  @Column({ nullable: false })
-  quantity: number;
+  @Column({ nullable: true, default: '' })
+  vendor_note?: string;
 
-  @OneToOne(() => Product)
-  @JoinColumn()
-  product: Product;
+  @OneToMany(() => CartItem, (cartItem) => cartItem.cart, {
+    cascade: true, // Automatically persist CartItems with Cart
+    eager: true,
+  })
+  @Exclude()
+  items: CartItem[];
 
-  @OneToOne(() => Customer)
+  @ManyToOne(() => Customer)
   @JoinColumn()
   customer: Customer;
+
+  @ManyToOne(() => Vendor)
+  @JoinColumn()
+  vendor: Vendor;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

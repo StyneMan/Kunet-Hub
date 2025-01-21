@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Admin } from './admin.entity';
@@ -20,7 +20,7 @@ export class AdminActivity {
   @Column({ nullable: true })
   description: string;
 
-  @OneToOne(() => Admin)
+  @ManyToOne(() => Admin)
   @JoinColumn()
   user: Admin;
 

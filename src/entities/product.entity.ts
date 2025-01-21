@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Vendor } from './vendor.entity';
@@ -20,7 +20,7 @@ export class Product {
   @Column({ nullable: false })
   name: string;
 
-  @OneToOne(() => Category)
+  @ManyToOne(() => Category)
   @JoinColumn()
   category: Category;
 
@@ -51,7 +51,7 @@ export class Product {
   @Column({ type: 'json', nullable: false })
   images: string[];
 
-  @OneToOne(() => Vendor)
+  @ManyToOne(() => Vendor)
   @JoinColumn()
   vendor: Vendor;
 

@@ -16,6 +16,8 @@ import { LoginRiderDTO } from 'src/riders/dtos/loginrider.dto';
 import { RegisterCustomerDTO } from 'src/customer/dtos/registercustomer.dto';
 import { SendOTPDTO } from 'src/commons/dtos/sendotp.dto';
 import { VerifyOTPDTO } from 'src/commons/dtos/verifyotp.dto';
+import { LoginPhoneDTO } from 'src/customer/dtos/loginphone.dto';
+import { VerifyLoginPhoneDTO } from 'src/customer/dtos/verify.login.phone.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -223,6 +225,31 @@ export class AuthController {
     return this.authService.loginCustomer(body);
   }
 
+  @Post('customer/login/phone')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async loginCustomerPhone(@Body() body: LoginPhoneDTO) {
+    return this.authService.loginCustomerPhone(body);
+  }
+
   @Post('customer/sendOTP')
   @UsePipes(
     new ValidationPipe({
@@ -271,6 +298,31 @@ export class AuthController {
   )
   async verifyOTPCustomer(@Body() payload: VerifyOTPDTO) {
     return this.authService.validateVerifyOTPCustomer(payload);
+  }
+
+  @Post('customer/phone/verifyOTP')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async verifyPhoneOTPCustomer(@Body() payload: VerifyLoginPhoneDTO) {
+    return this.authService.verifyCustomerPhoneLoginOTP(payload);
   }
 
   @Post('customer/forgotPassword')

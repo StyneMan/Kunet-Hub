@@ -11,10 +11,10 @@ export class Legal {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'longtext', nullable: true })
   privacy: string;
 
-  @Column()
+  @Column({ type: 'longtext', nullable: true })
   terms: string;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })

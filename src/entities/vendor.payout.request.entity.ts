@@ -5,7 +5,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Vendor } from './vendor.entity';
@@ -23,15 +23,15 @@ export class VendorPayoutRequest {
   @Column({ type: 'enum', enum: PayoutStatus, default: PayoutStatus.SUBMITTED })
   status: PayoutStatus;
 
-  @OneToOne(() => VendorBank, { nullable: false })
+  @ManyToOne(() => VendorBank, { nullable: false })
   @JoinColumn()
   bank_info: VendorBank;
 
-  @OneToOne(() => VendorWallet, { nullable: false })
+  @ManyToOne(() => VendorWallet, { nullable: false })
   @JoinColumn()
   wallet: VendorWallet;
 
-  @OneToOne(() => Vendor, { nullable: false })
+  @ManyToOne(() => Vendor, { nullable: false })
   @JoinColumn()
   vendor: Vendor;
 

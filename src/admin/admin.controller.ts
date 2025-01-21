@@ -15,6 +15,7 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt_guard';
 import { CreateAdminDTO } from './dtos/createadmin.dto';
 import { ValidationError } from 'class-validator';
+import { Request } from 'express';
 
 @Controller('admin')
 export class AdminController {
@@ -78,23 +79,6 @@ export class AdminController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('rider/:id/suspend')
-  async suspendRider(@Req() req: any) {
-    console.log('Admiin :::: ', req?.params);
-
-    return await this.adminService.suspendRider(
-      req?.user?.sub,
-      req?.params?.id,
-    );
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('rider/:id/pardon')
-  async pardonRider(@Req() req: any) {
-    return await this.adminService.pardonRider(req?.user?.sub, req?.params?.id);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Put(':id/update')
   async updateAdmin(@Req() req: any) {
     return await this.adminService.adminUpdateAdmin(
@@ -102,6 +86,14 @@ export class AdminController {
       req?.params?.id,
       req?.body,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('profile/update')
+  async updateProfile(@Req() req: Request | any) {
+    console.log('LOKO:: ', req?.user?.sub);
+
+    return await this.adminService.updateAdmin(req?.user?.sub, req?.body);
   }
 
   @UseGuards(JwtAuthGuard)

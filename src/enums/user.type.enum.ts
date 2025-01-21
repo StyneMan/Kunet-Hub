@@ -4,5 +4,3 @@ export enum UserType {
   OPERATOR = 'operator',
   ADMIN = 'admin',
 }
-
-// export type UserType = 'rider' | 'customer' | 'operator' | 'admin';

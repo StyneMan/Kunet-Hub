@@ -248,7 +248,12 @@ export class ProductsService {
   //   };
   // }
 
-  async allByVendor(vendorId: string, page: number, limit: number) {
+  async allByVendor(
+    vendorId: string,
+    page: number,
+    limit: number,
+    categoryId?: string,
+  ) {
     // First find this vendor first
     const vendor = await this.vendorRepository.findOne({
       where: { id: vendorId },
@@ -264,7 +269,64 @@ export class ProductsService {
       );
     }
 
-    console.log('VENDOR INFORMATION :::', vendor);
+    // console.log('VENDOR INFORMATION :::', vendor);
+
+    if (categoryId) {
+      //Look for category first
+      const category = await this.categoryRepository.findOne({
+        where: { id: categoryId },
+      });
+
+      if (!category) {
+        throw new HttpException(
+          {
+            message: 'Product category not found',
+            status: HttpStatus.NOT_FOUND,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+      // Get paginated data and total count
+      const [data, total] = await Promise.all([
+        this.productRepository
+          .createQueryBuilder('product') // Alias for the table
+          .leftJoinAndSelect('product.category', 'category') // Join the related product table
+          .leftJoinAndSelect('product.vendor', 'vendor') // Join the related product table
+          // .select([
+          //   'activity',
+          //   'admin.first_name',
+          //   'admin.last_name',
+          //   'admin.emai_address',
+          //   'admin.phone_number',
+          //   'admin.photo_url',
+          //   'admin.role',
+          //   'admin.type',
+          // ]) // Select only the required fields
+          .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
+          .andWhere('product.category.id = :categoryId', { categoryId }) // Filter by vendor ID
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records
+          .getMany(), // Execute query to fetch data
+
+        this.productRepository
+          .createQueryBuilder('product') // Alias for the table
+          .leftJoin('product.vendor', 'vendor') // Join the related vendor table
+          .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
+          .andWhere('product.category.id = :categoryId', { categoryId }) // Filter by vendor ID
+          .getCount(), // Count total records for pagination
+      ]);
+
+      // Return the paginated response
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    }
 
     const skip = (page - 1) * limit; // Calculate the number of records to skip
     // Get paginated data and total count

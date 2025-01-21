@@ -23,6 +23,10 @@ import { SendOTPDTO } from 'src/commons/dtos/sendotp.dto';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { VerifyOTPDTO } from 'src/commons/dtos/verifyotp.dto';
 import { OTPType } from 'src/enums/otp.type.enum';
+import { LoginPhoneDTO } from 'src/customer/dtos/loginphone.dto';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { SmsService } from 'src/sms/sms.service';
+import { VerifyLoginPhoneDTO } from 'src/customer/dtos/verify.login.phone.dto';
 
 @Injectable()
 export class CustomerAuthService {
@@ -31,6 +35,9 @@ export class CustomerAuthService {
     private readonly mailerService: MailerService,
     @InjectRepository(CustomerOTP)
     private readonly otpRepository: Repository<CustomerOTP>,
+    @InjectRepository(SMSProviders)
+    private readonly smsRepository: Repository<SMSProviders>,
+    private smsService: SmsService,
     private jwtService: JwtService,
   ) {}
 
@@ -77,131 +84,233 @@ export class CustomerAuthService {
   }
 
   async validateCreateUser(userData: RegisterCustomerDTO) {
-    try {
-      console.log('User Payload from Client :: ', userData);
-      if (!userData) {
-        throw new HttpException(
-          'Payload not provided !!!',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-      const userDB = await this.customerService.findCustomerByUsername(
-        userData?.email_address,
+    console.log('User Payload from Client :: ', userData);
+    if (!userData) {
+      throw new HttpException('Payload not provided !!!', HttpStatus.FORBIDDEN);
+    }
+    const userDB = await this.customerService.findCustomerByUsername(
+      userData?.email_address,
+    );
+
+    if (userDB) {
+      throw new HttpException(
+        { message: 'Account already exist', status: HttpStatus.BAD_REQUEST },
+        HttpStatus.BAD_REQUEST,
       );
+    }
 
-      if (userDB) {
-        return {
-          message: 'Account already exist',
-        };
-      }
+    const customerPhone = await this.customerService.findCustomerByPhone(
+      userData?.phone_number,
+    );
 
-      const customerPhone = await this.customerService.findCustomerByPhone(
-        userData?.phone_number,
+    if (customerPhone) {
+      throw new HttpException(
+        {
+          message: 'Phone number is taken',
+          status: HttpStatus.BAD_REQUEST,
+        },
+        HttpStatus.BAD_REQUEST,
       );
+    }
 
-      if (customerPhone) {
-        throw new HttpException(
-          {
-            message: 'Phone number is taken',
-            status: HttpStatus.BAD_REQUEST,
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
+    const createdUsr = await this.customerService.createCustomer(userData);
+    console.log('CREATED USER ', createdUsr);
 
-      const createdUsr = await this.customerService.createCustomer(userData);
-      console.log('CREATED USER ', createdUsr);
+    // Send OTP Code here
+    const otpCode = generateOTP(4);
+    const emailSent = await this.mailerService.sendMail({
+      to: userData?.email_address,
+      subject: 'New Account Creation',
+      html: verificationEmailContent(
+        otpCode,
+        `${userData?.first_name} ${userData?.last_name}`,
+      ),
+    });
+    // Send to phone number too
 
-      // Send OTP Code here
-      const otpCode = generateOTP();
-      const emailSent = await this.mailerService.sendMail({
-        to: userData?.email_address,
-        subject: 'New Account Creation',
-        html: verificationEmailContent(
-          otpCode,
-          `${userData?.first_name} ${userData?.last_name}`,
-        ),
-      });
-
-      // Save/Update OTP code for user here
-      const currentUserOTP = await this.otpRepository.findOne({
-        where: { user: createdUsr },
-      });
-      if (currentUserOTP) {
-        // OTP Already exists for this user so update it here
-        await this.otpRepository.update(
-          { user: createdUsr },
-          {
-            code: otpCode,
-            expired: false,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000),
-            updated_at: new Date(),
-          },
-        );
-      } else {
-        // No OTP so add new
-        const newOTP = this.otpRepository.create({
+    const currentUserOTP = await this.otpRepository.findOne({
+      where: { user: { email_address: userData?.email_address } },
+    });
+    if (currentUserOTP) {
+      // OTP Already exists for this user so update it here
+      await this.otpRepository.update(
+        { user: createdUsr },
+        {
           code: otpCode,
-          user: userData,
           expired: false,
           expires_at: new Date(Date.now() + 10 * 60 * 1000),
-          created_at: new Date(),
           updated_at: new Date(),
-        });
-        await this.otpRepository.save(newOTP);
-      }
+        },
+      );
+    } else {
+      // No OTP so add new
+      const newOTP = this.otpRepository.create({
+        code: otpCode,
+        expired: false,
+        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      newOTP.user = createdUsr;
+      await this.otpRepository.save(newOTP);
+    }
 
-      if (emailSent) {
-        return {
-          message: 'Email sent successfully',
-        };
-      } else {
-        return {
-          message: 'Failed to send OTP email',
-        };
-      }
-    } catch (error) {
-      console.log('ERR :: EMAIL ', error);
+    if (emailSent) {
+      return {
+        message: 'Email sent successfully',
+      };
+    } else {
+      return {
+        message: 'Failed to send OTP email',
+      };
     }
   }
 
   async sendOTP(payload: SendOTPDTO) {
-    try {
-      console.log('User Payload from Client :: ', payload?.email_address);
-      if (!payload) {
+    // try {
+    console.log('User Payload from Client :: ', payload?.email_address);
+    if (!payload) {
+      throw new HttpException(
+        {
+          message: 'Payload not provided !!!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const userData = await this.customerService.findCustomerByUsername(
+      payload?.email_address,
+    );
+    if (!userData) {
+      throw new HttpException(
+        {
+          message: 'User email is not registered on this platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    console.log('LJSK::: ', userData);
+
+    // Send OTP Code here
+    const otpCode = generateOTP(4);
+    console.log(otpCode);
+
+    if (payload?.phone_number) {
+      const defaultSMSProvider = await this.smsRepository.findOne({
+        where: { is_default: true },
+      });
+      if (!defaultSMSProvider) {
         throw new HttpException(
-          {
-            message: 'Payload not provided !!!',
-            status: HttpStatus.FORBIDDEN,
-          },
-          HttpStatus.FORBIDDEN,
+          'No default SMS provider found',
+          HttpStatus.NOT_FOUND,
         );
       }
+      await this.smsService.sendOTP({
+        providerEntity: defaultSMSProvider,
+        message: `Use the One Time Password (OTP) coded below ${otpCode}`,
+        phoneNumber: payload?.phone_number,
+      });
+    }
 
-      const userData = await this.customerService.findCustomerByUsername(
-        payload?.email_address,
+    const emailSent = await this.mailerService.sendMail({
+      to: payload?.email_address,
+      subject: 'New OTP Sent',
+      html: verificationEmailContent(otpCode, userData?.first_name),
+    });
+
+    const currentUserOTP = await this.otpRepository.findOne({
+      where: { user: userData },
+    });
+    if (currentUserOTP) {
+      // OTP Already exists for this user so update it here
+      await this.otpRepository.update(
+        { user: userData },
+        {
+          code: otpCode,
+          expired: false,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000),
+          updated_at: new Date(),
+        },
       );
-      if (!userData) {
+    } else {
+      // No OTP so add new
+      const newOTP = this.otpRepository.create({
+        code: otpCode,
+        user: userData,
+        expired: false,
+        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      await this.otpRepository.save(newOTP);
+    }
+
+    if (emailSent) {
+      return {
+        message: 'OTP email sent successfully',
+      };
+    } else {
+      return {
+        message: 'Failed to send OTP email',
+      };
+    }
+  }
+
+  async sendOTPPhone(payload: LoginPhoneDTO) {
+    if (!payload) {
+      throw new HttpException(
+        {
+          message: 'Payload not provided !!!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const userData = await this.customerService.findCustomerByPhone(
+      payload?.phone_number,
+    );
+    if (!userData) {
+      throw new HttpException(
+        {
+          message: 'Phone number is not registered on this platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Send OTP Code here
+    const otpCode = generateOTP(4);
+    console.log(otpCode);
+
+    if (payload?.phone_number) {
+      const defaultSMSProvider = await this.smsRepository.findOne({
+        where: { is_default: true },
+      });
+      if (!defaultSMSProvider) {
         throw new HttpException(
-          {
-            message: 'User email is not registered on this platform!',
-            status: HttpStatus.NOT_FOUND,
-          },
+          'No default SMS provider found',
           HttpStatus.NOT_FOUND,
         );
       }
 
-      console.log('LJSK::: ', userData);
-
-      // Send OTP Code here
-      const otpCode = generateOTP();
-      console.log(otpCode);
-
-      const emailSent = await this.mailerService.sendMail({
-        to: payload?.email_address,
-        subject: 'New OTP Sent',
-        html: verificationEmailContent(otpCode, userData?.first_name),
-      });
+      try {
+        await this.smsService.sendOTP({
+          providerEntity: defaultSMSProvider,
+          message: `Use the One Time Password (OTP) code below ${otpCode}`,
+          phoneNumber: payload?.intl_phone_number,
+        });
+      } catch (error) {
+        console.log(error);
+        throw new HttpException(
+          `Error occurred sending otp ${error}`,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
 
       const currentUserOTP = await this.otpRepository.findOne({
         where: { user: userData },
@@ -230,17 +339,9 @@ export class CustomerAuthService {
         await this.otpRepository.save(newOTP);
       }
 
-      if (emailSent) {
-        return {
-          message: 'OTP email sent successfully',
-        };
-      } else {
-        return {
-          message: 'Failed to send OTP email',
-        };
-      }
-    } catch (error) {
-      console.log('ERR :: EMAIL ', error);
+      return {
+        message: 'OTP code sent successfully',
+      };
     }
   }
 
@@ -353,73 +454,6 @@ export class CustomerAuthService {
     };
   }
 
-  //   async validateGoogleAuth(createUserDto: CreateCustomerGoogleDTO) {
-  //     try {
-  //       const user = await this.customerService.findCustomerByUsername(
-  //         createUserDto?.email_address,
-  //       );
-  //       console.log(user);
-  //       if (user) {
-  //         // update last_login here
-  //         await this.userRepository.update(
-  //           { id: user?.id },
-  //           {
-  //             next_login: new Date(),
-  //             last_login: user?.next_login ?? new Date(),
-  //           },
-  //         );
-
-  //         await this.historyService.saveHistory({
-  //           status: 'success',
-  //           title: 'You logged into your Afrikunet account via google',
-  //           type: 'login',
-  //           email_address: createUserDto?.email_address,
-  //         });
-
-  //         const usere = await this.customerService.findUserById(user?.id);
-
-  //         // const { password, ...result } = usere;
-  //         const { password, ...usr } = usere;
-  //         const payload = {
-  //           sub: user?.email_address,
-  //           username: user?.first_name,
-  //         };
-
-  //         return {
-  //           accessToken: await this.jwtService.signAsync(payload),
-  //           message: 'Logged in successfully',
-  //           user: usr,
-  //         };
-  //       } else {
-  //         console.log('User not found. Creating...');
-  //         const newUser =
-  //           await this.customerService.createUserGoogle(createUserDto);
-
-  //         await this.historyService.saveHistory({
-  //           status: 'success',
-  //           title: 'You created a new Afrikunet account via google',
-  //           type: 'register',
-  //           email_address: createUserDto?.email_address,
-  //         });
-
-  //         const { password, ...usr } = newUser;
-  //         const payload = {
-  //           sub: createUserDto?.email_address,
-  //           username: user?.first_name,
-  //         };
-
-  //         return {
-  //           accessToken: await this.jwtService.signAsync(payload),
-  //           message: 'Account created successfully',
-  //           user: usr,
-  //         };
-  //       }
-  //     } catch (error) {
-  //       console.log('eror : ', error);
-  //       throw error;
-  //     }
-  //   }
-
   async validateLogin(loginUserDTO: LoginCustomerDTO) {
     console.log('User Payload from Client :: ', loginUserDTO);
     if (!loginUserDTO) {
@@ -495,6 +529,134 @@ export class CustomerAuthService {
     }
   }
 
+  async loginPhone(loginUserDTO: LoginPhoneDTO) {
+    console.log('User Payload from Client :: ', loginUserDTO);
+    if (!loginUserDTO) {
+      throw new HttpException('Payload not provided !!!', HttpStatus.FORBIDDEN);
+    }
+    const userDB = await this.customerService.findCustomerByPhone(
+      loginUserDTO?.phone_number?.trim(),
+    );
+    console.log(userDB);
+
+    if (!userDB) {
+      throw new HttpException(
+        {
+          message: 'Phone number not registered on our platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.DELETED) {
+      throw new HttpException(
+        {
+          message: 'Account does not exist on our platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.SUSPENDED) {
+      throw new HttpException(
+        {
+          message: 'Account currently on hold',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // send otp to phone
+    return await this.sendOTPPhone({
+      phone_number: loginUserDTO.phone_number,
+      intl_phone_number: loginUserDTO.intl_phone_number,
+    });
+  }
+
+  async verifyPhoneLoginOTP(reqPayload: VerifyLoginPhoneDTO) {
+    console.log('VERIGY PHONE PAYLOAD ::: ', reqPayload);
+
+    const userDb = await this.customerService.findCustomerByPhone(
+      reqPayload?.phone_number,
+    );
+    if (!userDb) {
+      throw new HttpException(
+        {
+          message: 'User record not found',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const otpDb = await this.otpRepository.findOne({
+      where: { user: { id: userDb?.id } },
+    });
+
+    if (!otpDb) {
+      throw new HttpException(
+        {
+          message: 'OTP data not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now compare this otp code and the one saved to the database
+    if (otpDb?.code !== reqPayload.code) {
+      throw new HttpException(
+        {
+          message: 'OTP code not valid',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (otpDb.expired || new Date() > otpDb.expires_at) {
+      // Mark OTP as expired in the database for consistency
+      otpDb.expired = true;
+      await this.otpRepository.save(otpDb);
+
+      throw new HttpException(
+        {
+          message: 'OTP code has expired',
+          status: HttpStatus.BAD_REQUEST,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // await this.otpService.removeOtp(otpDb?.id);
+    await this.otpRepository.delete({ id: otpDb?.id });
+    // Now set user's email_verified to true
+    await this.customerService.updateCustomer(userDb?.email_address, {
+      status: UserStatus.ACTIVE,
+      last_login: userDb?.next_login,
+      next_login: new Date(),
+    });
+
+    const usere = await this.customerService.findCustomerByPhone(
+      reqPayload?.phone_number,
+    );
+
+    const { password, ...usr } = usere;
+    const payload = {
+      sub: userDb?.email_address,
+      username: userDb?.first_name,
+    };
+
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+      message: 'Logged in successfully',
+      user: usr,
+    };
+  }
+
   async sendPasswordResetEmail(email_address: string) {
     console.log('User Payload from Client :: ', email_address);
     if (!email_address) {
@@ -513,7 +675,7 @@ export class CustomerAuthService {
       );
     }
     // Send OTP Code here
-    const otpCode = generateOTP();
+    const otpCode = generateOTP(4);
     const emailSent = await this.mailerService.sendMail({
       to: email_address,
       subject: 'Account Password Reset OTP',

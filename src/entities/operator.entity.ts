@@ -70,8 +70,8 @@ export class Operator {
   @Column({ default: false })
   is_kyc_completed: boolean;
 
-  @Column({ type: 'timestamp' })
-  kyc_completed_at: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  kyc_completed_at?: Date;
 
   @Column({ type: 'enum', enum: UserStatus, default: UserStatus.PENDING })
   status: UserStatus;

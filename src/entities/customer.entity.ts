@@ -37,6 +37,9 @@ export class Customer {
   @Column({ type: 'enum', enum: UserType, default: UserType.CUSTOMER })
   user_type?: UserType;
 
+  @Column({ nullable: true })
+  wallet_pin: string;
+
   @Column({ unique: false, nullable: true })
   intl_phone_format: string;
 
@@ -54,6 +57,9 @@ export class Customer {
 
   @Column({ nullable: true })
   gender: string;
+
+  @Column({ nullable: true })
+  address: string;
 
   @Column({ default: false })
   is_profile_set: boolean;

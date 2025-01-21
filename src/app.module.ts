@@ -51,8 +51,21 @@ import { OperatorDocument } from './entities/operator.document.entity';
 import { AppController } from './app.controller';
 import { SettingsModule } from './settings/settings.module';
 import { Legal } from './entities/legal.entity';
-import { NotificationGateway } from './notification/notification.gateway';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { SupportsModule } from './supports/supports.module';
+import { Support } from './entities/support.entity';
+import { SmsService } from './sms/sms.service';
+import { SMSProviders } from './entities/sms.provider.entity';
+import { PlivoService } from './sms/providers/plivo.service';
+import { TwilioService } from './sms/providers/twilio.service';
+import { BroadnetService } from './sms/providers/broadnet.service';
+import { SendChampService } from './sms/providers/sendchamp.service';
+import { TermiiService } from './sms/providers/termii.service';
+import { CustomerWallet } from './entities/customer.wallet.entity';
+import { PackOption } from './entities/pack.option.entity';
+import { CustomerFavourites } from './entities/customer.favourites.entity';
+import { CartItem } from './entities/cart.item.entity';
+import { SocketModule } from './socket/socket.module';
 
 @Module({
   imports: [
@@ -72,6 +85,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
+        legacySpatialSupport: false,
         entities: [
           Customer,
           Operator,
@@ -97,29 +111,23 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
           Category,
           Cart,
           Legal,
+          CartItem,
           OperatorActivity,
           AdminActivity,
           RiderBank,
           VendorBank,
           Address,
+          Support,
+          PackOption,
+          SMSProviders,
+          CustomerWallet,
+          CustomerFavourites,
         ],
         cache: false,
         synchronize: true,
         autoLoadEntities: true,
       }),
       inject: [ConfigService],
-      // type: 'mysql',
-      // host: configService.get<string>('DB_HOST'), // '',
-      // port: 14646,
-      // username: 'avnadmin',
-      // password: 'AVNS_zhU2Zg8wDPsQL7m_yMA',
-      // database: 'defaultdb',
-
-      // // dropSchema: true,
-      // cache: false,
-      // synchronize: true,
-      // autoLoadEntities: true,
-      // logging: 'all', // Enable query logging
     }),
     PassportModule,
     JwtModule.register({
@@ -183,8 +191,18 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     ZonesModule,
     BankModule,
     SettingsModule,
+    SupportsModule,
+    SocketModule,
   ],
   controllers: [AppController],
-  providers: [AppService, NotificationGateway],
+  providers: [
+    AppService,
+    SmsService,
+    PlivoService,
+    TwilioService,
+    TermiiService,
+    BroadnetService,
+    SendChampService,
+  ],
 })
 export class AppModule {}

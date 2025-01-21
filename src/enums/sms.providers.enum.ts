@@ -1,6 +1,7 @@
 export enum SMSProviderType {
   SENDCHAMP = 'sendchamp',
   TWILIO = 'twilio',
-  SENDGRID = 'sendgrid',
+  PLIVIO = 'plivio',
   TERMII = 'termii',
+  BROADNET = 'broadnet',
 }

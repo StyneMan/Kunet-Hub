@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { TransactionType } from 'src/enums/transaction.type.enum';
@@ -33,7 +33,7 @@ export class RiderTransactions {
   @Column({ nullable: false })
   summary: string;
 
-  @OneToOne(() => Rider, { nullable: false })
+  @ManyToOne(() => Rider, { nullable: false })
   @JoinColumn()
   rider: Rider;
 

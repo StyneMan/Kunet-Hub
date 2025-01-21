@@ -5,7 +5,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { RiderBank } from './rider.bank.entity';
@@ -23,15 +23,15 @@ export class RiderPayoutRequest {
   @Column({ type: 'enum', enum: PayoutStatus, default: PayoutStatus.SUBMITTED })
   status: PayoutStatus;
 
-  @OneToOne(() => RiderBank, { nullable: false })
+  @ManyToOne(() => RiderBank, { nullable: false })
   @JoinColumn()
   bank_info: RiderBank;
 
-  @OneToOne(() => RiderWallet, { nullable: false })
+  @ManyToOne(() => RiderWallet, { nullable: false })
   @JoinColumn()
   wallet: RiderWallet;
 
-  @OneToOne(() => Rider, { nullable: false })
+  @ManyToOne(() => Rider, { nullable: false })
   @JoinColumn()
   rider: Rider;
 

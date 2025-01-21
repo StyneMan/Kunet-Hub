@@ -14,6 +14,9 @@ import OrderItemI from 'src/interfaces/order.item';
 import { OrderType } from 'src/enums/order.type.enum';
 import { Operator } from './operator.entity';
 import { OrderStatus } from 'src/enums/order.status.enum';
+import { ReceiverI } from 'src/commons/interfaces/receiver.interface';
+import { ShippingType } from 'src/enums/shipping.type.enum';
+import { DeliveryType } from 'src/enums/delivery.type.enum';
 
 @Entity({ name: 'orders' })
 export class Order {
@@ -28,6 +31,9 @@ export class Order {
 
   @Column({ type: 'json', nullable: false })
   items: OrderItemI[];
+
+  @Column({ type: 'json', nullable: true })
+  receiver?: ReceiverI;
 
   @OneToOne(() => Customer, { nullable: true })
   @JoinColumn()
@@ -50,6 +56,12 @@ export class Order {
 
   @Column({ type: 'enum', enum: OrderStatus, nullable: false })
   order_status: OrderStatus;
+
+  @Column({ type: 'enum', enum: ShippingType, nullable: true })
+  shipping_type?: ShippingType;
+
+  @Column({ type: 'enum', enum: DeliveryType, nullable: false })
+  delivery_type: DeliveryType;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

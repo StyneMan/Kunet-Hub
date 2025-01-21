@@ -32,7 +32,19 @@ import { Vendor } from 'src/entities/vendor.entity';
 import { RiderTransactions } from 'src/entities/rider.transactions.entity';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { RiderDocument } from 'src/entities/rider.document.entity';
-import { NotificationGateway } from 'src/notification/notification.gateway';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { SmsService } from 'src/sms/sms.service';
+import { TwilioService } from 'src/sms/providers/twilio.service';
+import { BroadnetService } from 'src/sms/providers/broadnet.service';
+import { SendChampService } from 'src/sms/providers/sendchamp.service';
+import { PlivoService } from 'src/sms/providers/plivo.service';
+import { ShippingAddress } from 'src/entities/shipping.address.entity';
+import { TermiiService } from 'src/sms/providers/termii.service';
+import { CustomerWallet } from 'src/entities/customer.wallet.entity';
+import { PackOption } from 'src/entities/pack.option.entity';
+import { CustomerFavourites } from 'src/entities/customer.favourites.entity';
+import { CartItem } from 'src/entities/cart.item.entity';
+import { SocketModule } from 'src/socket/socket.module';
 
 @Module({
   imports: [
@@ -44,21 +56,28 @@ import { NotificationGateway } from 'src/notification/notification.gateway';
       AdminOTP,
       CustomerOTP,
       OperatorOTP,
-      RiderOTP,
       AdminActivity,
+      RiderOTP,
       Cart,
       Zone,
-      Product,
       Vendor,
+      Product,
+      CartItem,
+      PackOption,
       RiderWallet,
+      SMSProviders,
       RiderDocument,
+      CustomerWallet,
+      ShippingAddress,
       RiderTransactions,
+      CustomerFavourites,
     ]),
     PassportModule,
     JwtModule.register({
       secret: 'abcdfast123BuyJakasMan123@09nmdhyuDiloe((30(())',
       signOptions: { expiresIn: '1d' },
     }),
+    SocketModule,
   ],
   controllers: [AuthController],
   providers: [
@@ -75,7 +94,12 @@ import { NotificationGateway } from 'src/notification/notification.gateway';
     LocalStrategy,
     ZonesService,
     JwtStrategy,
-    NotificationGateway,
+    SmsService,
+    PlivoService,
+    TwilioService,
+    TermiiService,
+    BroadnetService,
+    SendChampService,
   ],
 })
 export class AuthModule {}

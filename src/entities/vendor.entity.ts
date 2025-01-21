@@ -15,6 +15,7 @@ import { Service } from './service.entity';
 import { VendorStatus } from 'src/enums/vendor.status.enum';
 import { Zone } from './zone.entity';
 import { Exclude } from 'class-transformer';
+import { Category } from './category.entity';
 
 @Entity({ name: 'vendors' })
 export class Vendor {
@@ -39,16 +40,22 @@ export class Vendor {
   @Column({ nullable: false })
   regNo: string;
 
+  @OneToMany(() => Category, (category) => category.vendor, { cascade: true })
+  categories: Category[];
+
   @Column({ nullable: false })
   certificate: string;
 
   @Column({ nullable: true })
   cover?: string;
 
+  @Column({ nullable: true })
+  wallet_pin: string;
+
   @Column({ nullable: false })
   logo: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, default: 1.0 })
   rating: number;
 
   @OneToOne(() => Operator)

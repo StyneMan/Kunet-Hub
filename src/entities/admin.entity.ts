@@ -58,6 +58,18 @@ export class Admin {
   @Column({ type: 'enum', enum: UserType, default: UserType.ADMIN })
   user_type?: UserType;
 
+  @Column({ nullable: true })
+  street: string;
+
+  @Column({ nullable: true })
+  state: string;
+
+  @Column({ nullable: true })
+  city: string;
+
+  @Column({ nullable: true })
+  country: string;
+
   @Column({ type: 'timestamp', nullable: true, default: null })
   next_login?: Date | null;
 

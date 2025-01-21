@@ -75,6 +75,9 @@ export class Rider {
   user_type?: UserType;
 
   @Column({ nullable: true })
+  wallet_pin: string;
+
+  @Column({ nullable: true })
   street: string;
 
   @Column({ nullable: true })
