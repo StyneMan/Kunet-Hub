@@ -16,7 +16,7 @@ export class TermiiService implements SMSProviderInterface {
       {
         api_key: config?.public_key ?? config?.private_key,
         from: config?.sender_id ?? config?.from_number, // fastbuy
-        to: '2347040277958', // input.phoneNumber,
+        to: input.phoneNumber,
         sms: input.message,
         type: 'plain',
         channel: 'generic',

@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { AddBankDTO } from './dtos/addbank.dto';
 import { UpdateBankDTO } from './dtos/updatebank.dto';
 import axios from 'axios';
+import * as bcrypt from 'bcrypt';
 import { VerifyAccountDTO } from './dtos/verifyaccount.dto';
 import { VendorPayoutRequest } from 'src/entities/vendor.payout.request.entity';
 import { RiderPayoutRequest } from 'src/entities/rider.payout.request.entity';
@@ -21,6 +22,27 @@ import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 import { PayoutStatus } from 'src/enums/payout-status.enum';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { RiderOTP } from 'src/entities/otp.rider.entity';
+import { FlutterwaveService } from './gateways/flutterwave/flutterwave_service';
+import { PaystackService } from './gateways/paystack/paystack_service';
+import { PaymentGateway } from 'src/entities/payment.gateway.entity';
+import { PaymentGatewayType } from 'src/enums/payment.gateways.enum';
+import { FlutterwavePaymentLinkDTO } from './dtos/flutterwave.payment.dto';
+import { PaystackPaymentLinkDTO } from './dtos/paystack.payment.init.dto';
+import { PayCardOrderDTO, PayWalletOrderDTO } from './dtos/pay.card.order.dto';
+import { Customer } from 'src/entities/customer.entity';
+import { CustomerWallet } from 'src/entities/customer.wallet.entity';
+import { SocketGateway } from 'src/socket/socket.gateway';
+import { UserType } from 'src/enums/user.type.enum';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { RiderTransactions } from 'src/entities/rider.transactions.entity';
+import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
+import { TransactionType } from 'src/enums/transaction.type.enum';
+import { OrdersService } from 'src/orders/orders.service';
+import { generateOTP } from 'src/utils/otp_generator';
+import { generateOrderNo } from 'src/utils/order_num_generator';
+import { Cart } from 'src/entities/cart.entity';
+import { orderConfirmationEmail } from 'src/utils/order_confirmation_mail';
+import { PaymentMethod } from 'src/enums/payment-method.enum';
 
 @Injectable()
 export class BankService {
@@ -33,6 +55,8 @@ export class BankService {
     private readonly riderRepository: Repository<Rider>,
     @InjectRepository(Vendor)
     private readonly vendorRepository: Repository<Vendor>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
     @InjectRepository(Operator)
     private readonly operatorRepository: Repository<Operator>,
     @InjectRepository(OperatorOTP)
@@ -43,11 +67,27 @@ export class BankService {
     private riderWalletRepository: Repository<RiderWallet>,
     @InjectRepository(VendorWallet)
     private vendorWalletRepository: Repository<VendorWallet>,
+    @InjectRepository(CustomerWallet)
+    private customerWalletRepository: Repository<CustomerWallet>,
     @InjectRepository(VendorPayoutRequest)
     private readonly vendorPayoutRepository: Repository<VendorPayoutRequest>,
     @InjectRepository(RiderPayoutRequest)
     private readonly riderPayoutRepository: Repository<RiderPayoutRequest>,
+    @InjectRepository(PaymentGateway)
+    private gatewayRepository: Repository<PaymentGateway>,
+    @InjectRepository(CustomerTransactions)
+    private customerTransactionRepository: Repository<CustomerTransactions>,
+    @InjectRepository(RiderTransactions)
+    private riderTransactionRepository: Repository<RiderTransactions>,
+    @InjectRepository(VendorTransactions)
+    private vendorTransactionRepository: Repository<VendorTransactions>,
+    @InjectRepository(Cart)
+    private readonly cartRepository: Repository<Cart>,
     private mailerService: MailerService,
+    private orderService: OrdersService,
+    private flutterwaveService: FlutterwaveService,
+    private paystackService: PaystackService,
+    private socketGateway: SocketGateway,
   ) {}
 
   async addRiderBank(payload: AddBankDTO) {
@@ -69,7 +109,11 @@ export class BankService {
 
     // First check if this rider already has a bank account added
     const hasBank = await this.riderBankRepository.findOne({
-      where: { owner: rider },
+      where: {
+        owner: { id: rider?.id },
+        bank_code: payload?.bankCode,
+        account_number: payload?.accountNumber,
+      },
       relations: ['owner'],
     });
 
@@ -86,25 +130,18 @@ export class BankService {
       newBank.owner = rider;
       await this.riderBankRepository.save(newBank);
 
+      this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-banks', {
+        message: 'Bank account added ',
+      });
+
       return {
         message: 'Bank added successfully',
       };
     } else {
-      const newBank = this.riderBankRepository.create({
-        account_name: payload?.accountName,
-        account_number: payload?.accountNumber,
-        bank_code: payload?.bankCode,
-        bank_name: payload?.bankName,
-        created_at: new Date(),
-        is_default: false,
-      });
-
-      newBank.owner = rider;
-      await this.riderBankRepository.save(newBank);
-
-      return {
-        message: 'Bank added successfully',
-      };
+      throw new HttpException(
+        'Bank account already exist',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -334,6 +371,9 @@ export class BankService {
     bank.updated_at = new Date();
 
     const updatedCart = await this.riderBankRepository.save(bank);
+    this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-banks', {
+      message: 'Bank account added ',
+    });
 
     return {
       message: 'Updated bank successfully',
@@ -341,7 +381,21 @@ export class BankService {
     };
   }
 
-  async deleteRiderBank(bankId: string) {
+  async deleteRiderBank(email_address: string, bankId: string) {
+    const rider = await this.riderRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!rider) {
+      throw new HttpException(
+        {
+          message: 'Rider not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
     const bank = await this.riderBankRepository.findOne({
       where: { id: bankId },
     });
@@ -357,6 +411,9 @@ export class BankService {
     }
 
     await this.riderBankRepository.delete({ id: bankId });
+    this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-banks', {
+      message: 'Bank account added ',
+    });
 
     return {
       message: 'Bank account deleted successfully',
@@ -381,7 +438,17 @@ export class BankService {
       },
     });
 
-    return resp.data;
+    // return resp.data;
+
+    // Sorting banks alphabetically by name
+    const sortedBanks = resp.data.data.sort((a: any, b: any) =>
+      a?.name?.localeCompare(b?.name),
+    );
+
+    return {
+      ...resp.data,
+      data: sortedBanks,
+    };
   }
 
   async verifyAccount(payload: VerifyAccountDTO) {
@@ -461,6 +528,7 @@ export class BankService {
         .createQueryBuilder('bank')
         .leftJoinAndSelect('bank.owner', 'owner')
         .where('owner.id = :vendorID', { vendorID })
+        .orderBy('bank.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -488,6 +556,7 @@ export class BankService {
       this.riderBankRepository
         .createQueryBuilder('bank')
         .leftJoinAndSelect('bank.owner', 'owner')
+        .orderBy('bank.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -504,15 +573,15 @@ export class BankService {
   }
 
   async findRiderBankAccounts(page: number, limit: number, riderID: string) {
-    const vendor = await this.riderBankRepository.findOne({
+    const rider = await this.riderRepository.findOne({
       where: { id: riderID },
     });
 
-    if (!vendor) {
+    if (!rider) {
       throw new HttpException(
         {
           status: HttpStatus.NOT_FOUND,
-          message: 'Vendor not found',
+          message: 'Rider not found',
         },
         HttpStatus.NOT_FOUND,
       );
@@ -525,6 +594,7 @@ export class BankService {
         .createQueryBuilder('bank')
         .leftJoinAndSelect('bank.owner', 'owner')
         .where('owner.id = :riderID', { riderID })
+        .orderBy('bank.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -855,5 +925,209 @@ export class BankService {
       totalItems: total,
       perPage: limit,
     };
+  }
+
+  async initFlutterwavePayment(payload: FlutterwavePaymentLinkDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { provider: PaymentGatewayType.FLUTTER_WAVE },
+    });
+
+    if (!gateway) {
+      throw new HttpException(
+        {
+          message: 'Flutterwave gateway not initialized',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return this.flutterwaveService.flutterwavePaymentLink(
+      gateway.secret_key,
+      payload,
+    );
+  }
+
+  async initPaystackPayment(payload: PaystackPaymentLinkDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { provider: PaymentGatewayType.PAYSTACK },
+    });
+
+    if (!gateway) {
+      throw new HttpException(
+        {
+          message: 'Paystack gateway not found',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    return this.paystackService.initializeTransaction(
+      gateway.secret_key,
+      payload,
+    );
+  }
+
+  async flutterwaveWebHook(data: any) {
+    return this.flutterwaveService.flutterwaveTopupWallet(data);
+  }
+
+  async flutterwaveCardWebHook(data: any) {
+    return this.flutterwaveService.flutterwaveCardPayHook(data);
+  }
+
+  async flutterwaveOrderChargeCard(payload: PayCardOrderDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { provider: PaymentGatewayType.FLUTTER_WAVE },
+    });
+
+    if (!gateway) {
+      throw new HttpException(
+        'Flutterwave gateway missing',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return this.flutterwaveService.flutterwavePaywithCard(
+      gateway?.secret_key,
+      payload,
+    );
+  }
+
+  async orderWithWallet(email_address: string, payload: PayWalletOrderDTO) {
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!customer) {
+      throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
+    }
+
+    // now check for wallet
+    const wallet = await this.customerWalletRepository.findOne({
+      where: { customer: { id: customer?.id } },
+    });
+
+    if (!wallet) {
+      throw new HttpException(
+        'Customer wallet not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      wallet &&
+      (await bcrypt.compareSync(payload?.wallet_pin, customer?.wallet_pin))
+    ) {
+      // now process to deduct wallet then place order
+      if (wallet?.balance > payload?.paymentInfo?.amount) {
+        wallet.prev_balance = wallet.balance;
+        wallet.balance = wallet.balance - payload?.paymentInfo?.amount;
+
+        const updatedWallet = await this.customerWalletRepository.save(wallet);
+        this.socketGateway.sendEvent(
+          customer?.id,
+          UserType.CUSTOMER,
+          'refresh-wallet',
+          {
+            message: 'Refreshing wallet',
+            data: updatedWallet,
+          },
+        );
+
+        const randCode = generateOTP(4);
+        const orderReference = await generateOrderNo(randCode);
+
+        // Now create transaction
+        const walletTransaction =
+          await this.customerTransactionRepository.create({
+            amount: payload?.paymentInfo?.amount,
+            tx_ref: orderReference,
+            fee: 0,
+            summary: 'Order purchase with wallet',
+            transaction_type: TransactionType.WITHDRAWAL,
+            status: 'pending',
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+        walletTransaction.customer = customer;
+        await this.customerTransactionRepository.save(walletTransaction);
+
+        // Now create order here
+        const newOrder = await this.orderService.createOrder(
+          orderReference,
+          randCode,
+          payload?.userType,
+          payload?.orderInfo,
+        );
+
+        console.log('CREATE ORDER RESPONSE :: ', newOrder);
+
+        // Clear the cart here
+        const cart = await this.cartRepository.findOne({
+          where: {
+            customer: { id: customer?.id },
+            vendor: { id: payload?.orderInfo?.vendorId },
+          },
+        });
+
+        if (!cart) {
+          console.log('CART NOT FOUND');
+          // throw new HttpException('Cart not found!', HttpStatus.NOT_FOUND);
+        } else {
+          await this.cartRepository.remove(cart);
+          this.socketGateway.sendEvent(
+            customer?.id,
+            UserType.CUSTOMER,
+            'refresh-cart',
+            {
+              message: 'HELLO TESTING SOCKET.IO !!!',
+            },
+          );
+        }
+
+        // Send order email here
+        // now send order confirmation email here
+        await this.mailerService.sendMail({
+          to: customer?.email_address,
+          subject: 'Order Confirmation Email',
+          html: orderConfirmationEmail({
+            amount: payload?.orderInfo?.amount,
+            amountPaid: parseInt(`${payload?.paymentInfo?.amount}`),
+            deliveryType: payload?.orderInfo?.deliveryType,
+            items: payload?.orderInfo?.items,
+            orderNum: orderReference,
+            paymentMethod: PaymentMethod.Wallet,
+            deliveryFee: payload?.orderInfo?.deliveryFee,
+            fullName: `${customer?.first_name} ${customer?.last_name}`,
+            vendorName: newOrder?.data?.vendor?.name ?? 'FastBuy Team',
+            receiverName: payload?.orderInfo?.receiver?.name,
+            serviceCharge: 0,
+            deliveryAddress: payload?.orderInfo?.deliveryAddress,
+            orderDate: new Date(`${newOrder?.data.created_at}`).toLocaleString(
+              'en-US',
+            ),
+          }),
+        });
+
+        this.socketGateway.sendEvent(
+          customer.id,
+          UserType?.CUSTOMER,
+          'refresh-orders',
+          { message: 'Refreshing orders', order: newOrder },
+        );
+
+        return {
+          message: 'Order successfully created',
+          data: newOrder,
+        };
+      } else {
+        throw new HttpException(
+          'Insufficient wallet balance',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    } else {
+      throw new HttpException('Incorrect wallet pin', HttpStatus.BAD_REQUEST);
+    }
   }
 }

@@ -20,6 +20,9 @@ import { VendorType } from 'src/enums/vendor.type.enum';
 import { AddCategoryDTO } from './dtos/addcategory.dto';
 import { Request } from 'express';
 import { UpdateVendorDTO } from './dtos/updatevendor.dto';
+import { AddCouponDTO } from './dtos/add.coupon.dto';
+import { UpdateCouponDTO } from './dtos/update.coupon.dto';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 
 @Controller('vendor')
 export class VendorsController {
@@ -172,6 +175,75 @@ export class VendorsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('coupon/create')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        // const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async createCoupon(@Req() req: any, @Body() body: AddCouponDTO) {
+    return await this.vendorService.addCoupon(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('coupon/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateCoupon(@Req() req: any, @Body() body: UpdateCouponDTO) {
+    return await this.vendorService.updateCoupon(
+      req?.user?.sub,
+      req?.params?.id,
+      body,
+    );
+  }
+
+  @Get(':id/coupons')
+  async vendorCoupons(
+    @Req() req: Request,
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.vendorService.findVendorCoupons(
+      page,
+      limit,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('category/:id/update')
   @UsePipes(
     new ValidationPipe({
@@ -285,5 +357,31 @@ export class VendorsController {
     @Query('limit') limit: number = 25,
   ) {
     return await this.vendorService.findAllDocuments(page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('wallet/secure')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async setWalletPIN(@Body() payload: UpdateWalletPINDTO, @Req() req: any) {
+    return this.vendorService.setWalletPin(req?.user?.sub, payload);
   }
 }

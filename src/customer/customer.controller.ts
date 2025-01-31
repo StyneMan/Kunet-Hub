@@ -20,6 +20,10 @@ import { AddShippingAddressDTO } from './dtos/add.shipping.address.dto';
 import { UpdateShippingAddressDTO } from './dtos/update.shipping.address.dto';
 import { VendorType } from 'src/enums/vendor.type.enum';
 import { AddToCartDTO } from './dtos/addtocart.dto';
+import { Request } from 'express';
+import { UpdateCartDTO } from './dtos/updatecart.dto';
+import { ApplyCouponCodeDTO } from './dtos/apply.couon.code.dto';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 
 @Controller('customer')
 export class CustomerController {
@@ -221,7 +225,7 @@ export class CustomerController {
     return this.customerService.addToCart(req?.user?.sub, payload);
   }
 
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get(':id/carts')
   async customerCarts(
     @Param('id') id: string,
@@ -229,6 +233,32 @@ export class CustomerController {
     @Query('limit') limit: number = 25,
   ) {
     return await this.customerService.customerCarts(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('cart/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateCart(@Body() payload: UpdateCartDTO, @Req() req: Request) {
+    return this.customerService.updateCart(req?.params?.id, payload);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -247,8 +277,125 @@ export class CustomerController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('coupon/apply')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async applyCoupon(@Body() payload: ApplyCouponCodeDTO, @Req() req: any) {
+    return this.customerService.applyCouponCode(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/wallet')
   async wallet(@Param('id') id: string) {
     return await this.customerService.customerWallet(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/transactions')
+  async customerTransactions(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerTransactions(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/orders')
+  async customerOrders(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerOrders(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/orders/parcels')
+  async customerParcelOrders(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerParcelOrders(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/orders/in_progress')
+  async customerOrdersInProgress(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerOrdersInprogress(id, page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/orders/delivered')
+  async customerOrdersDelivered(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerOrdersDelivered(id, page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/orders/cancelled')
+  async customerOrdersCancelled(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerOrdersCancelled(id, page, limit);
+  }
+
+  @Get('search/result')
+  async searchResult(@Query('query') query: string) {
+    return this.customerService.search(query);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('wallet/secure')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async setWalletPIN(@Body() payload: UpdateWalletPINDTO, @Req() req: any) {
+    return this.customerService.setWalletPin(req?.user?.sub, payload);
   }
 }

@@ -4,8 +4,10 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Query,
   Req,
+  Res,
   UseGuards,
   UsePipes,
   ValidationPipe,
@@ -15,7 +17,12 @@ import { ValidationError } from 'class-validator';
 import { VerifyAccountDTO } from './dtos/verifyaccount.dto';
 import { AddBankDTO } from './dtos/addbank.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt_guard';
-import { Request } from 'express';
+import { Request, Response } from 'express';
+import { FlutterwavePaymentLinkDTO } from './dtos/flutterwave.payment.dto';
+import { PaystackPaymentLinkDTO } from './dtos/paystack.payment.init.dto';
+import { PayCardOrderDTO, PayWalletOrderDTO } from './dtos/pay.card.order.dto';
+import { PaymentGatewayType } from 'src/enums/payment.gateways.enum';
+import { UpdateBankDTO } from './dtos/updatebank.dto';
 
 @Controller('bank')
 export class BankController {
@@ -132,7 +139,7 @@ export class BankController {
   )
   async addRiderBankAccount(@Body() payload: AddBankDTO) {
     try {
-      return this.bankService.addVendorBank(payload);
+      return this.bankService.addRiderBank(payload);
     } catch (error) {
       console.log(error);
     }
@@ -162,6 +169,73 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('rider/accounts/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateRiderBankAccount(
+    @Req() req: any,
+    @Body() payload: UpdateBankDTO,
+  ) {
+    try {
+      return this.bankService.updateRiderBank(
+        req?.user?.sub,
+        req?.params?.id,
+        payload,
+      );
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('rider/accounts/:id/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteRiderBankAccount(@Req() req: any) {
+    try {
+      return this.bankService.deleteRiderBank(req?.user?.sub, req?.params?.id);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('rider/payouts')
   async riderPayouts(
     @Req() req: Request,
@@ -179,5 +253,133 @@ export class BankController {
     @Query('limit') limit: number = 25,
   ) {
     return await this.bankService.allVendorPayoutRequests(page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('payments/flutterwave/init')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initFlutterwavePayment(@Body() payload: FlutterwavePaymentLinkDTO) {
+    return this.bankService.initFlutterwavePayment(payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('payments/order/card')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initPaywithCard(@Body() payload: PayCardOrderDTO) {
+    if (payload?.paymentGateway === PaymentGatewayType.FLUTTER_WAVE) {
+      return this.bankService.flutterwaveOrderChargeCard(payload);
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('payments/order/wallet')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initPaywithWallet(@Body() payload: PayWalletOrderDTO, @Req() req: any) {
+    return this.bankService.orderWithWallet(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('payments/paystack/init')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initPaystackPayment(@Body() payload: PaystackPaymentLinkDTO) {
+    return this.bankService.initPaystackPayment(payload);
+  }
+
+  @Post('flutterwave/webhook')
+  async flutterwaveWebhook(@Req() req: Request) {
+    console.log('REQUEST ::: ', req.body);
+    // console.log('RESPONSE ::: ', res);
+    const event = req.body?.event;
+    if (event === 'charge.completed') {
+      const data = req.body?.data;
+      console.log('DATA HERE ::: ', data);
+      if (`${data?.tx_ref}`.startsWith('FBW')) {
+        return this.bankService.flutterwaveWebHook(data);
+      } else if (`${data?.tx_ref}`.startsWith('FBO')) {
+        return this.bankService.flutterwaveCardWebHook(data);
+      }
+    }
+  }
+
+  @Post('paystack/webhook')
+  async paystackWebhook(@Req() req: Request, @Res() res: Response) {
+    console.log('REQUEST ::: ', req.body);
+    console.log('RESPONSE ::: ', res.json());
   }
 }

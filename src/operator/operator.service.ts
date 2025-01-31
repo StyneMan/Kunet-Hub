@@ -173,9 +173,10 @@ export class OperatorService {
   async findOperatorByUsername(email_address: string): Promise<Operator> {
     const foundUser = await this.operatorRepository.findOne({
       where: { email_address: email_address },
+      relations: ['vendor'],
     });
 
-    console.log('FOUND USER :: ', foundUser);
+    console.log('FOUND OPERATOR USR :: ', foundUser);
 
     return foundUser;
   }
@@ -234,6 +235,132 @@ export class OperatorService {
       return {
         message: error?.response?.data?.message || 'An error occurred!',
       };
+    }
+  }
+
+  async suspendStaff(email_address: string, id: string) {
+    try {
+      //First check if user exist and marketplace exists
+      const operator = await this.operatorRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!operator) {
+        throw new HttpException('No operator found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (operator.operator_type !== OperatorType.OWNER) {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            message: 'You are forbidden to perform this action',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      const foundStaff = await this.operatorRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundStaff) {
+        throw new HttpException(
+          'Staff record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      await this.operatorRepository.update(
+        { id: foundStaff?.id }, // Update condition
+        { status: UserStatus.SUSPENDED, updated_at: new Date() }, // New values to set
+      );
+
+      return {
+        message: 'Staff suspended successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async pardonStaff(email_address: string, id: string) {
+    try {
+      const operator = await this.operatorRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!operator) {
+        throw new HttpException('No operator found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (operator.operator_type !== OperatorType.OWNER) {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            message: 'You are forbidden to perform this action',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      const foundStaff = await this.operatorRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundStaff) {
+        throw new HttpException(
+          'Staff record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.operatorRepository.update(
+        { id: id },
+        { status: UserStatus.ACTIVE, updated_at: new Date() },
+      );
+
+      return {
+        message: 'Staff account restored successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async deleteStaff(email_address: string, id: string) {
+    try {
+      const operator = await this.operatorRepository.findOne({
+        where: { email_address: email_address },
+      });
+      if (!operator) {
+        throw new HttpException('No operator found.', HttpStatus.NOT_FOUND);
+      }
+
+      if (operator.operator_type !== OperatorType.OWNER) {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            message: 'You are forbidden to perform this action',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      const foundStaff = await this.operatorRepository.findOne({
+        where: { id: id },
+      });
+      if (!foundStaff) {
+        throw new HttpException(
+          'Staff record not found.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.operatorRepository.delete({ id: id });
+
+      return {
+        message: 'Staff account deleted successfully',
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
     }
   }
 }

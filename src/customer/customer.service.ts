@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Customer } from 'src/entities/customer.entity';
 import { encodePassword } from 'src/utils/bcrypt';
-import { Repository } from 'typeorm';
+import { ILike, Repository } from 'typeorm';
 import {
   RegisterCustomerDTO,
   CreateCustomerGoogleDTO,
@@ -37,6 +37,15 @@ import { VendorStatus } from 'src/enums/vendor.status.enum';
 import { CartItem } from 'src/entities/cart.item.entity';
 import { ProductStatus } from 'src/enums/product.status.enum';
 import { SocketGateway } from 'src/socket/socket.gateway';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { Coupon } from 'src/entities/coupon.entity';
+import { ApplyCouponCodeDTO } from './dtos/apply.couon.code.dto';
+import { DiscountType } from 'src/enums/discount.type.enum';
+import { Order } from 'src/entities/order.entity';
+import * as bcrypt from 'bcrypt';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
+import { OrderStatus } from 'src/enums/order.status.enum';
+import { OrderType } from 'src/enums/order.type.enum';
 // import { NotificationGateway } from 'src/notification/notification.gateway';
 
 @Injectable()
@@ -54,14 +63,20 @@ export class CustomerService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(AdminActivity)
     private readonly activitiesRepository: Repository<AdminActivity>,
+    @InjectRepository(Order)
+    private readonly ordersRepository: Repository<Order>,
     @InjectRepository(ShippingAddress)
     private readonly shippingAddressRepository: Repository<ShippingAddress>,
     @InjectRepository(CustomerWallet)
     private readonly walletRepository: Repository<CustomerWallet>,
     @InjectRepository(CustomerFavourites)
     private readonly customerFavsRepository: Repository<CustomerFavourites>,
+    @InjectRepository(CustomerTransactions)
+    private readonly customerTransactionsRepository: Repository<CustomerTransactions>,
     @InjectRepository(Vendor)
     private readonly vendorRepository: Repository<Vendor>,
+    @InjectRepository(Coupon)
+    private readonly couponRepository: Repository<Coupon>,
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
   ) {}
@@ -353,6 +368,75 @@ export class CustomerService {
       console.log('PROFILE UPDATE ERROR ::: ', error);
       return {
         message: error?.response?.data?.message || 'An error occurred!',
+      };
+    }
+  }
+
+  async setWalletPin(email_address: string, payload: UpdateWalletPINDTO) {
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!customer) {
+      throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
+    }
+
+    // Now find wallett
+    const wallet = await this.walletRepository.findOne({
+      where: { customer: { id: customer?.id } },
+    });
+
+    if (!wallet) {
+      throw new HttpException(
+        'Customer wallet not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (customer.wallet_pin) {
+      // It has been addded before, so compare with new pin before updting
+      if (!payload?.old_pin) {
+        throw new HttpException(
+          'old wallet pin is required',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const savedPin = customer?.wallet_pin;
+      if (customer && !bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        throw new HttpException(
+          'Incorrect wallet pin entered',
+          HttpStatus.BAD_REQUEST,
+        );
+      } else if (customer && bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        // All good
+        // Noow encodde new pin
+        const encodedPassword = await encodePassword(payload.new_pin);
+        customer.wallet_pin = encodedPassword;
+        customer.updated_at = new Date();
+
+        await this.customerRepository.save(customer);
+        const refreshed = await this.customerRepository.findOne({
+          where: { id: customer?.id },
+        });
+        return {
+          message: 'Wallet pin updated successfully',
+          data: refreshed,
+        };
+      }
+    } else {
+      // Create new pin
+      const encodedPassword = await encodePassword(payload.new_pin);
+      customer.wallet_pin = encodedPassword;
+      customer.updated_at = new Date();
+
+      await this.customerRepository.save(customer);
+      const refreshed = await this.customerRepository.findOne({
+        where: { id: customer?.id },
+      });
+      return {
+        message: 'Wallet pin set successfully',
+        data: refreshed,
       };
     }
   }
@@ -762,7 +846,7 @@ export class CustomerService {
     if (!cart) {
       throw new HttpException(
         {
-          message: 'Cart item not found!',
+          message: 'Cart not found!',
           status: HttpStatus.NOT_FOUND,
         },
         HttpStatus.NOT_FOUND,
@@ -770,14 +854,22 @@ export class CustomerService {
     }
     console.log(payload);
 
-    // cart.amount = payload?.amount;
-    // cart.quantity = payload?.quantity;
+    cart.vendor_note = payload?.vendor_note;
     cart.updated_at = new Date();
 
     const updatedCart = await this.cartRepository.save(cart);
 
+    this.socketGateway.sendEvent(
+      cart?.customer?.id,
+      UserType.CUSTOMER,
+      'refresh-cart',
+      {
+        message: 'ADDED TO CART!',
+      },
+    );
+
     return {
-      message: 'Updated to cart successfully',
+      message: 'Vendor note saved successfully',
       data: updatedCart,
     };
   }
@@ -1182,7 +1274,8 @@ export class CustomerService {
       .leftJoinAndSelect('favourite.vendor', 'vendor')
       .leftJoinAndSelect('vendor.categories', 'categories') // Join categories for the vendor
       .leftJoinAndSelect('vendor.zone', 'zone') // Join categories for the vendor
-      .where('customer.id = :customerId', { customerId });
+      .where('customer.id = :customerId', { customerId })
+      .orderBy('favourite.created_at', 'DESC'); // Sort by created_at in descending order
 
     // Add vendor_type condition if provided
     if (vendor_type) {
@@ -1262,5 +1355,480 @@ export class CustomerService {
       data,
       totalItems: total,
     };
+  }
+
+  async customerTransactions(page: number, limit: number, customerId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.customerTransactionsRepository
+        .createQueryBuilder('trans') // Alias for the table
+        .leftJoinAndSelect('trans.customer', 'customer') // Join the related product table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .orderBy('trans.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.customerTransactionsRepository
+        .createQueryBuilder('trans') // Alias for the table
+        .leftJoin('trans.customer', 'customer') // Join the related vendor table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async customerOrders(page: number, limit: number, customerId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .leftJoinAndSelect('vendor.categories', 'categories')
+        .leftJoinAndSelect('vendor.owner', 'owner')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoin('orders.customer', 'customer') // Join the related vendor table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .innerJoinAndSelect('vendor.categories', 'categories')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    console.log('ITEMS :::: ===>>> ', total);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async customerParcelOrders(page: number, limit: number, customerId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+    const order_type = OrderType.PARCEL_ORDER;
+
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .leftJoinAndSelect('vendor.categories', 'categories')
+        .leftJoinAndSelect('vendor.owner', 'owner')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('orders.order_type = :order_type', { order_type })
+        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoin('orders.customer', 'customer') // Join the related vendor table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .innerJoinAndSelect('vendor.categories', 'categories')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('orders.order_type = :order_type', { order_type })
+        .getCount(), // Count total records for pagination
+    ]);
+
+    console.log('ITEMS :::: ===>>> ', total);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async customerOrdersInprogress(
+    customerId: string,
+    page: number,
+    limit: number,
+  ) {
+    // First find this vendor first
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer record not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    // Define order statuses to filter by
+    const inProgressStatuses = [
+      OrderStatus.PROCESSING,
+      OrderStatus.IN_DELIVERY,
+      OrderStatus.READY_FOR_DELIVERY,
+      OrderStatus.READY_FOR_PICKUP,
+    ];
+
+    // Get paginated data and total count
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoin('order.customer', 'customer') // Join the related vendor table
+        .leftJoin('order.vendor', 'vendor') // Join the related vendor table
+        .leftJoin('order.rider', 'rider') // Join the related vendor table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .getCount(), // Count total records for pagination
+    ]);
+
+    // Return the paginated response
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async customerOrdersDelivered(
+    customerId: string,
+    page: number,
+    limit: number,
+  ) {
+    // First find this vendor first
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer record not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    // Define order statuses to filter by
+    const inProgressStatuses = [OrderStatus.DELIVERED, OrderStatus.COMPLETED];
+
+    // Get paginated data and total count
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoin('order.customer', 'customer') // Join the related vendor table
+        .leftJoin('order.vendor', 'vendor') // Join the related vendor table
+        .leftJoin('order.rider', 'rider') // Join the related vendor table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .getCount(), // Count total records for pagination
+    ]);
+
+    // Return the paginated response
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async customerOrdersCancelled(
+    customerId: string,
+    page: number,
+    limit: number,
+  ) {
+    // First find this vendor first
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer record not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    // Define order statuses to filter by
+    const inProgressStatuses = [OrderStatus.REJECTED, OrderStatus.CANCELLED];
+
+    // Get paginated data and total count
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('order') // Alias for the table
+        .leftJoin('order.customer', 'customer') // Join the related vendor table
+        .leftJoin('order.vendor', 'vendor') // Join the related vendor table
+        .leftJoin('order.rider', 'rider') // Join the related vendor table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .andWhere('order.order_status IN (:...inProgressStatuses)', {
+          inProgressStatuses,
+        }) // Filter by order status
+        .getCount(), // Count total records for pagination
+    ]);
+
+    // Return the paginated response
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async applyCouponCode(email_address: string, payload: ApplyCouponCodeDTO) {
+    // First check if customer exists
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now check for coupon code
+    const coupon = await this.couponRepository
+      .createQueryBuilder('coupon')
+      .leftJoinAndSelect('coupon.vendor', 'vendor')
+      .leftJoinAndSelect('coupon.customers', 'customers')
+      .where('coupon.code = :code', { code: payload?.code })
+      .andWhere('vendor.id = :vendorId', { vendorId: payload?.vendorId })
+      .getOne();
+
+    if (!coupon) {
+      throw new HttpException(
+        {
+          message: 'Invalid vendor coupon code!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now check if this coupon is for the rightful vendor
+    if (coupon.vendor.id !== payload?.vendorId) {
+      throw new HttpException(
+        {
+          message: 'Wrong vendor! Forbidden.',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const custCoupon = await this.couponRepository
+      .createQueryBuilder('coupon')
+      .leftJoinAndSelect('coupon.vendor', 'vendor')
+      .leftJoinAndSelect('coupon.customers', 'customers')
+      .where('coupon.code = :code', { code: payload?.code })
+      .andWhere('customers.email_address = :email', {
+        email: customer.email_address,
+      })
+      .andWhere('vendor.id = :vendorId', { vendorId: payload?.vendorId }) // Added vendor condition
+      .getOne();
+
+    if (custCoupon) {
+      // Now check if it is for this vendor
+      if (custCoupon.vendor.id === payload?.vendorId) {
+        // yes for this vendor, therefore this customer has used this coupon before
+        throw new HttpException(
+          {
+            message: 'Coupon already used by you!',
+            status: HttpStatus.FORBIDDEN,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
+
+    // Now check if the discount amount is more than the total amount to be applied on
+    if (coupon?.discount >= payload?.total_amount) {
+      throw new HttpException(
+        {
+          message: "Can't use coupon. Amount too low",
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // Now eerything is in order now
+    // first check coupon  ddiscount type
+    if (coupon?.discount_type === DiscountType.FIXED) {
+      const result = payload?.total_amount - coupon?.discount;
+      coupon.customers = [...coupon.customers, customer];
+      await this.couponRepository.save(coupon);
+      return {
+        message: 'Coupon applied successfully',
+        data: {
+          id: coupon?.id,
+          toPay: result,
+          deduct: payload.total_amount - result,
+        },
+      };
+    } else if (coupon?.discount_type === DiscountType.PERCENTAGE) {
+      const perc = coupon?.discount / 100;
+      const mult = perc * payload?.total_amount;
+      const result = payload?.total_amount - mult;
+      coupon.customers = [...coupon.customers, customer];
+      await this.couponRepository.save(coupon);
+      return {
+        message: 'Coupon applied successfully',
+        data: {
+          id: coupon?.id,
+          toPay: result,
+          deduct: payload.total_amount - result,
+        },
+      };
+    }
+  }
+
+  async search(query: string): Promise<any> {
+    if (!query) return { vendors: [], products: [] };
+
+    const vendors = await this.vendorRepository.find({
+      where: { name: ILike(`%${query}%`) }, // Case-insensitive LIKE query
+      take: 10,
+      relations: ['categories', 'zone', 'owner'], // Populate related categories
+    });
+
+    const products = await this.productRepository.find({
+      where: { name: ILike(`%${query}%`) },
+      take: 10,
+      relations: ['category', 'vendor'],
+    });
+
+    return { vendors, products };
   }
 }

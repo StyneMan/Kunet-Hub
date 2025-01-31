@@ -18,6 +18,12 @@ export class CustomerTransactions {
   @Column({ type: 'enum', enum: TransactionType })
   transaction_type: TransactionType;
 
+  @Column({ nullable: false, unique: true })
+  tx_ref: string;
+
+  @Column({ nullable: true })
+  fee?: number;
+
   @Column({ nullable: false })
   amount: number;
 

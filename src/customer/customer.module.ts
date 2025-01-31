@@ -13,6 +13,9 @@ import { CustomerFavourites } from 'src/entities/customer.favourites.entity';
 import { Vendor } from 'src/entities/vendor.entity';
 import { CartItem } from 'src/entities/cart.item.entity';
 import { SocketModule } from 'src/socket/socket.module';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { Coupon } from 'src/entities/coupon.entity';
+import { Order } from 'src/entities/order.entity';
 
 @Module({
   imports: [
@@ -20,13 +23,16 @@ import { SocketModule } from 'src/socket/socket.module';
       Customer,
       Admin,
       Cart,
+      Order,
       Product,
       Vendor,
       CartItem,
+      Coupon,
       AdminActivity,
       CustomerWallet,
       ShippingAddress,
       CustomerFavourites,
+      CustomerTransactions,
     ]),
     SocketModule,
   ],

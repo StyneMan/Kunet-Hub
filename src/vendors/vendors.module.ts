@@ -12,6 +12,8 @@ import { OperatorDocument } from 'src/entities/operator.document.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
 import { Customer } from 'src/entities/customer.entity';
+import { Coupon } from 'src/entities/coupon.entity';
+import { SocketModule } from 'src/socket/socket.module';
 
 @Module({
   imports: [
@@ -20,12 +22,14 @@ import { Customer } from 'src/entities/customer.entity';
       Operator,
       Admin,
       Zone,
+      Coupon,
       Category,
       Customer,
       VendorWallet,
       OperatorDocument,
       VendorTransactions,
     ]),
+    SocketModule,
   ],
   providers: [VendorsService, ZonesService],
   controllers: [VendorsController],

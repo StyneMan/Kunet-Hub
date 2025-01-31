@@ -20,8 +20,8 @@ export class RiderBank {
   @Column({ nullable: false })
   bank_code: string;
 
-  @Column({ nullable: false })
-  bank_logo: string;
+  @Column({ nullable: true })
+  bank_logo?: string;
 
   @Column({ nullable: false })
   account_name: string;

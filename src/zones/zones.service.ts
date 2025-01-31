@@ -92,6 +92,10 @@ export class ZonesService {
       where: { id: zoneID },
     });
 
+    if (!zone) {
+      return null;
+    }
+
     return zone;
   }
 

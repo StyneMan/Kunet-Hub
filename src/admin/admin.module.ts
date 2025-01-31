@@ -41,6 +41,16 @@ import { PackOption } from 'src/entities/pack.option.entity';
 import { CustomerFavourites } from 'src/entities/customer.favourites.entity';
 import { CartItem } from 'src/entities/cart.item.entity';
 import { SocketModule } from 'src/socket/socket.module';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { RiderReview } from 'src/entities/rider.review.entity';
+import { Coupon } from 'src/entities/coupon.entity';
+import { Order } from 'src/entities/order.entity';
+import { CommissionAndFee } from 'src/entities/fee.entity';
+import { Complaint } from 'src/entities/complaint.entity';
+import { OrdersService } from 'src/orders/orders.service';
+import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
+import { SystemTransactions } from 'src/entities/system.transactions.entity';
+import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 
 @Module({
   imports: [
@@ -57,16 +67,25 @@ import { SocketModule } from 'src/socket/socket.module';
       Cart,
       Product,
       Zone,
+      Order,
       Vendor,
+      Coupon,
+      Complaint,
+      CommissionAndFee,
       CartItem,
       PackOption,
       RiderWallet,
+      RiderReview,
       RiderDocument,
       SMSProviders,
+      VendorWallet,
       CustomerWallet,
       ShippingAddress,
       RiderTransactions,
       CustomerFavourites,
+      CustomerTransactions,
+      VendorTransactions,
+      SystemTransactions,
     ]),
     PassportModule,
     JwtModule.register({
@@ -89,6 +108,7 @@ import { SocketModule } from 'src/socket/socket.module';
     RiderAuthService,
     CustomerAuthService,
     OperatorAuthService,
+    OrdersService,
     PlivoService,
     TwilioService,
     TermiiService,

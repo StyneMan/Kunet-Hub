@@ -81,6 +81,14 @@ export class AuthService {
     return this.riderService.validateLogin(payload);
   }
 
+  loginRiderPhone(payload: LoginPhoneDTO) {
+    return this.riderService.loginPhone(payload);
+  }
+
+  verifyRiderPhoneLoginOTP(payload: VerifyLoginPhoneDTO) {
+    return this.riderService.verifyPhoneLoginOTP(payload);
+  }
+
   sendPasswordResetEmailRider(email_address: string) {
     return this.riderService.sendPasswordResetEmail(email_address);
   }
@@ -110,8 +118,8 @@ export class AuthService {
     return this.operatorService.validateLogin(payload);
   }
 
-  sendPasswordResetEmailOperator(email_address: string) {
-    return this.operatorService.sendPasswordResetEmail(email_address);
+  sendPasswordResetEmailOperator(payload: SendOTPDTO) {
+    return this.operatorService.sendPasswordResetEmail(payload?.email_address);
   }
 
   resetPasswordOperator({

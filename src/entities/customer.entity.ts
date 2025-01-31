@@ -3,10 +3,12 @@ import {
   BeforeUpdate,
   Column,
   Entity,
+  ManyToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { UserType } from 'src/enums/user.type.enum';
+import { Coupon } from './coupon.entity';
 
 @Entity({ name: 'customers' })
 export class Customer {
@@ -63,6 +65,9 @@ export class Customer {
 
   @Column({ default: false })
   is_profile_set: boolean;
+
+  @ManyToMany(() => Coupon, (coupon) => coupon.customers)
+  coupons: Coupon[];
 
   @Column({ type: 'enum', enum: UserStatus })
   status: UserStatus;

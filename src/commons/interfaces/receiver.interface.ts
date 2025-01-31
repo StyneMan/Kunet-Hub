@@ -3,7 +3,7 @@ export interface ReceiverI {
   phone: string;
   email: string;
   address: string;
-  location: Coordinates;
+  location?: Coordinates;
 }
 
 type Coordinates = {

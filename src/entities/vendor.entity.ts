@@ -25,6 +25,24 @@ export class Vendor {
   @Column({ nullable: false })
   name: string;
 
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 8,
+    nullable: false,
+    default: 6.569984,
+  })
+  lat: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 11,
+    scale: 8,
+    nullable: false,
+    default: 3.342336,
+  })
+  lng: number;
+
   @Column({ nullable: true })
   slogan?: string;
 
@@ -100,6 +118,9 @@ export class Vendor {
 
   @Column({ nullable: false, default: '' })
   business_email: string;
+
+  @Column({ nullable: false, default: '' })
+  business_phone: string;
 
   // Staffs: One-to-many relationship with operators
   @OneToMany(() => Operator, (operator) => operator.vendor, { cascade: true })

@@ -23,6 +23,14 @@ import { TopupWalletDTO } from './dtos/topupwallet.dto';
 import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
 import { UpdateVendorDTO } from './dtos/updatevendor.dto';
 import { AdminAccess } from 'src/enums/admin.access.enum';
+import { Coupon } from 'src/entities/coupon.entity';
+import { AddCouponDTO } from './dtos/add.coupon.dto';
+import { UpdateCouponDTO } from './dtos/update.coupon.dto';
+import { CouponStatus } from 'src/enums/coupon.status.enum';
+import calculateDistance from 'src/commons/calculator/distance.calc';
+import { SocketGateway } from 'src/socket/socket.gateway';
+import * as bcrypt from 'bcrypt';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 
 @Injectable()
 export class VendorsService {
@@ -37,12 +45,15 @@ export class VendorsService {
     private readonly documentRepository: Repository<OperatorDocument>,
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
+    @InjectRepository(Coupon)
+    private readonly couponRepository: Repository<Coupon>,
     @InjectRepository(VendorWallet)
     private readonly walletRepository: Repository<VendorWallet>,
     @InjectRepository(VendorTransactions)
     private readonly transactionRepository: Repository<VendorTransactions>,
     private mailerService: MailerService,
     private zoneService: ZonesService,
+    private socketGateway: SocketGateway,
   ) {}
 
   async findVendors(page: number, limit: number, vendor_type?: VendorType) {
@@ -107,7 +118,15 @@ export class VendorsService {
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records returned
           .getMany(), // Execute query to fetch data
-        this.vendorRepository.count(), // Count total documents for calculating total pages
+
+        this.vendorRepository
+          .createQueryBuilder('vendor') // Alias for the table
+          .leftJoin('vendor.owner', 'owner') // Join the related vendor table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .andWhere('vendor.status != :status', {
+            status: VendorStatus.DELETED,
+          })
+          .getCount(), // Count total records for pagination
       ]);
 
       return {
@@ -120,9 +139,61 @@ export class VendorsService {
     }
   }
 
+  async findNearbyVendors(
+    page: number,
+    limit: number,
+    lat: string,
+    lng: string,
+  ) {
+    // Fetch vendors within a 10km radius
+    const nearbyVendors = await this.vendorRepository.find({
+      where: {
+        status: VendorStatus.ACTIVE,
+      },
+    });
+
+    const vendorsWithDistance = await Promise.all(
+      nearbyVendors.map(async (vendor) => {
+        const distance = await calculateDistance(
+          {
+            lat: parseInt(lat, 10),
+            lng: parseInt(lng, 10),
+          },
+          {
+            lat: parseFloat(`${vendor.lat}`),
+            lng: parseFloat(`${vendor.lng}`),
+          },
+        );
+        return { ...vendor, distance };
+      }),
+    );
+
+    // First do some Google Map operations
+    console.log('PAGE ::: ', page);
+    console.log('LIMIT ::: ', limit);
+
+    // Sort riders by distance and daily orders
+    const sortedVendors = vendorsWithDistance
+      .filter((vendor) => vendor.distance <= 10) // Vendors within 10km
+      .sort((a, b) => a.distance - b.distance);
+
+    if (sortedVendors.length === 0) {
+      return {
+        message: 'No nearby vendors found',
+        data: [],
+      };
+    }
+
+    return {
+      data: sortedVendors,
+    };
+  }
+
   async createVendor(
     email_address: string,
     {
+      lat,
+      lng,
       city,
       country,
       country_code,
@@ -144,6 +215,8 @@ export class VendorsService {
       back_view,
       biz_cert,
       zoneId,
+      business_phone,
+      business_email,
     }: CreateVendorDTO,
   ) {
     const adm = await this.adminRepository.findOne({
@@ -240,6 +313,10 @@ export class VendorsService {
         logo: logo,
         street: street,
         website: website,
+        lat: parseFloat(lat),
+        lng: parseFloat(lng),
+        business_phone: business_phone,
+        business_email: business_email,
         certificate: biz_cert,
         created_at: new Date(),
         updated_at: new Date(),
@@ -413,6 +490,14 @@ export class VendorsService {
     });
     category.vendor = vndr;
     const savedCategory = await this.categoryRepository.save(category);
+
+    this.socketGateway.sendVendorEvent(
+      payload?.vendorId,
+      'refresh-categories',
+      {
+        data: savedCategory,
+      },
+    );
     return savedCategory;
   }
 
@@ -423,6 +508,7 @@ export class VendorsService {
   ) {
     const operator = await this.operatorRepository.findOne({
       where: { email_address: email_address },
+      relations: ['vendor'],
     });
 
     if (!operator) {
@@ -479,6 +565,14 @@ export class VendorsService {
         id: category.id,
       },
       { name: payload?.name },
+    );
+
+    this.socketGateway.sendVendorEvent(
+      payload?.vendorId,
+      'refresh-categories',
+      {
+        data: updatedCategory,
+      },
     );
 
     return {
@@ -540,6 +634,13 @@ export class VendorsService {
     }
 
     await this.categoryRepository.delete({ id: categoryId });
+    this.socketGateway.sendVendorEvent(
+      category?.vendor?.id,
+      'refresh-categories',
+      {
+        data: null,
+      },
+    );
     return {
       message: 'Category deleted successfully',
     };
@@ -986,5 +1087,403 @@ export class VendorsService {
       totalItems: total,
       perPage: limit,
     };
+  }
+
+  async addCoupon(email_address: string, payload: AddCouponDTO) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Vendor operator not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    console.log('OPERATOR INFO ::: ', operator);
+
+    if (operator?.vendor?.id !== payload?.vendorId) {
+      throw new HttpException(
+        {
+          message: 'Unknown vendor operator',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const vndr = await this.vendorRepository.findOne({
+      where: { id: payload?.vendorId },
+    });
+
+    if (!vndr) {
+      throw new HttpException(
+        {
+          message: 'No vendor record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const coupon = await this.couponRepository.findOne({
+      where: { code: payload?.code, vendor: { id: vndr.id } },
+    });
+
+    if (coupon) {
+      throw new HttpException(
+        'Coupon code already used by vendor!',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // Now create coupon
+    // const uniqueCode = generateRandomCoupon(8, vndr.name.toUpperCase());
+    const newCoupon = this.couponRepository.create({
+      name: payload?.name,
+      code: payload?.code,
+      image_url: payload?.image_url,
+      discount: payload.discount,
+      discount_type: payload?.discountType,
+      expires_at: payload?.expires_at,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    newCoupon.vendor = vndr;
+
+    const savedCoupon = await this.couponRepository.save(newCoupon);
+
+    this.socketGateway.sendVendorEvent(vndr?.id, 'refresh-coupons', {
+      data: null,
+    });
+
+    return savedCoupon;
+  }
+
+  async updateCoupon(
+    email_address: string,
+    couponId: string,
+    payload: UpdateCouponDTO,
+  ) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Vendor operator not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (operator?.vendor?.id !== payload?.vendorId) {
+      throw new HttpException(
+        {
+          message: 'Unknown vendor operator',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const vndr = await this.vendorRepository.findOne({
+      where: { id: payload?.vendorId },
+    });
+
+    if (!vndr) {
+      throw new HttpException(
+        {
+          message: 'No vendor record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now update coupon
+    const coupon = await this.couponRepository.findOne({
+      where: { id: couponId, vendor: { id: payload?.vendorId } },
+    });
+
+    if (!coupon) {
+      throw new HttpException(
+        {
+          message: 'No matching coupon found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    coupon.discount = payload?.discount ?? coupon.discount;
+    coupon.discount_type = payload?.discountType ?? coupon.discount_type;
+    coupon.expires_at = payload?.expiresAt ?? coupon.expires_at;
+    coupon.name = payload?.name ?? coupon.name;
+    coupon.updated_at = new Date();
+
+    const updatedCoupon = await this.couponRepository.save(coupon);
+    this.socketGateway.sendVendorEvent(vndr?.id, 'refresh-coupons', {
+      data: null,
+    });
+
+    return {
+      message: 'Coupon updated successfully',
+      data: updatedCoupon,
+    };
+  }
+
+  async findVendorCoupons(page: number, limit: number, vendorID: string) {
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: vendorID },
+    });
+
+    if (!vendor) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          message: 'Vendor not found',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.couponRepository
+        .createQueryBuilder('coupon')
+        .leftJoinAndSelect('coupon.vendor', 'vendor')
+        .where('vendor.id = :vendorID', { vendorID })
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+
+      this.couponRepository
+        .createQueryBuilder('coupon') // Alias for the table
+        .leftJoin('coupon.vendor', 'vendor') // Join the related vendor table
+        .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async findAllCoupons(page: number, limit: number, status?: CouponStatus) {
+    if (status) {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+      // Get paginated data and total count
+      const [data, total] = await Promise.all([
+        this.couponRepository
+          .createQueryBuilder('coupon') // Alias for the table
+          .leftJoinAndSelect('coupon.vendor', 'vendor') // Join the related admin table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .where('coupon.status = :status', { status }) // Filter by vendor ID
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records
+          .getMany(), // Execute query to fetch data
+
+        this.couponRepository
+          .createQueryBuilder('coupon') // Alias for the table
+          .leftJoin('coupon.vendor', 'vendor') // Join the related vendor table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .where('coupon.status = :status', { status }) // Filter by vendor ID
+          .getCount(), // Count total records for pagination
+      ]);
+
+      // Return the paginated response
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    } else {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+      const [data, total] = await Promise.all([
+        this.couponRepository
+          .createQueryBuilder('coupon') // Alias for the Admin table
+          .leftJoinAndSelect('coupon.vendor', 'vendor') // Join the related admin table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .leftJoinAndSelect('coupon.customer', 'customer') // Join the related admin table
+          .select([
+            'coupon',
+            'customer.first_name',
+            'customer.last_name',
+            'customer.email_address',
+            'customer.phone_number',
+            'customer.photo_url',
+          ])
+          // .where('vendor.status != :status', { status: VendorStatus.DELETED })
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records returned
+          .getMany(), // Execute query to fetch data
+        this.vendorRepository.count(), // Count total documents for calculating total pages
+      ]);
+
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    }
+  }
+
+  async deleteCoupon(operatorEmail: string, couponId: string) {
+    const coupon = await this.couponRepository.findOne({
+      where: { id: couponId },
+      relations: ['vendor'],
+    });
+
+    if (!coupon) {
+      throw new HttpException(
+        {
+          message: 'Coupon not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: operatorEmail },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'No operator record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (operator?.operator_type !== OperatorType.OWNER) {
+      throw new HttpException(
+        {
+          message: 'Operation not allowed',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // Now check if this vendor owns this category;
+    if (operator?.vendor?.id !== coupon?.vendor?.id) {
+      throw new HttpException(
+        {
+          message: 'Operation not allowed',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    await this.couponRepository.delete({ id: couponId });
+    return {
+      message: 'Coupon deleted successfully',
+    };
+  }
+
+  async setWalletPin(email_address: string, payload: UpdateWalletPINDTO) {
+    if (!payload?.vendor_id) {
+      throw new HttpException('Vendor ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException('Operator not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (operator.operator_type !== OperatorType.OWNER) {
+      throw new HttpException('You are forbidden!', HttpStatus.FORBIDDEN);
+    }
+
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: payload?.vendor_id },
+    });
+
+    if (!vendor) {
+      throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (vendor.status !== VendorStatus.ACTIVE) {
+      throw new HttpException('Vendor not active!', HttpStatus.FORBIDDEN);
+    }
+
+    // Now find wallett
+    const wallet = await this.walletRepository.findOne({
+      where: { vendor: { id: vendor?.id } },
+    });
+
+    if (!wallet) {
+      throw new HttpException('Vendor wallet not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (vendor?.wallet_pin) {
+      // It has been addded before, so compare with new pin before updting
+      if (!payload?.old_pin) {
+        throw new HttpException(
+          'old wallet pin is required',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const savedPin = vendor?.wallet_pin;
+      if (vendor && !bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        throw new HttpException(
+          'Incorrect wallet pin entered',
+          HttpStatus.BAD_REQUEST,
+        );
+      } else if (vendor && bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        // All good
+        // Noow encodde new pin
+        const encodedPassword = await encodePassword(payload.new_pin);
+        vendor.wallet_pin = encodedPassword;
+        vendor.updated_at = new Date();
+
+        await this.vendorRepository.save(vendor);
+        return {
+          message: 'Wallet pin updated successfully',
+        };
+      }
+    } else {
+      // Create new pin
+      const encodedPassword = await encodePassword(payload.new_pin);
+      vendor.wallet_pin = encodedPassword;
+      vendor.updated_at = new Date();
+
+      await this.vendorRepository.save(vendor);
+      return {
+        message: 'Wallet pin set successfully',
+      };
+    }
+  }
+
+  async couponCronJob() {
+    // Cron Job to automatically expire a coupon code on the expiration date
   }
 }

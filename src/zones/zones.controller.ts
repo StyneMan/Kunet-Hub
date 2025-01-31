@@ -55,7 +55,6 @@ export class ZonesController {
     return await this.zoneService.all(page, limit);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('all_zones')
   async all() {
     return await this.zoneService.allZone();

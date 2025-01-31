@@ -21,6 +21,10 @@ import { SendOTPDTO } from 'src/commons/dtos/sendotp.dto';
 import { VerifyOTPDTO } from 'src/commons/dtos/verifyotp.dto';
 import { OTPType } from 'src/enums/otp.type.enum';
 import { UserStatus } from 'src/enums/user.status.enum';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { SmsService } from 'src/sms/sms.service';
+import { LoginPhoneDTO } from 'src/customer/dtos/loginphone.dto';
+import { VerifyLoginPhoneDTO } from 'src/customer/dtos/verify.login.phone.dto';
 
 @Injectable()
 export class RiderAuthService {
@@ -29,6 +33,9 @@ export class RiderAuthService {
     private readonly mailerService: MailerService,
     @InjectRepository(RiderOTP)
     private otpRepository: Repository<RiderOTP>,
+    @InjectRepository(SMSProviders)
+    private readonly smsRepository: Repository<SMSProviders>,
+    private smsService: SmsService,
     private jwtService: JwtService,
   ) {}
 
@@ -73,7 +80,7 @@ export class RiderAuthService {
     console.log('LJSK::: ', userData);
 
     // Send OTP Code here
-    const otpCode = generateOTP();
+    const otpCode = generateOTP(4);
     console.log(otpCode);
 
     const emailSent = await this.mailerService.sendMail({
@@ -116,6 +123,92 @@ export class RiderAuthService {
     } else {
       return {
         message: 'Failed to send OTP email',
+      };
+    }
+  }
+
+  async sendOTPPhone(payload: LoginPhoneDTO) {
+    if (!payload) {
+      throw new HttpException(
+        {
+          message: 'Payload not provided !!!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const userData = await this.riderService.findRiderByPhone(
+      payload?.phone_number,
+    );
+    if (!userData) {
+      throw new HttpException(
+        {
+          message: 'Phone number is not recognized!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Send OTP Code here
+    const otpCode = generateOTP(4);
+    console.log(otpCode);
+
+    if (payload?.phone_number) {
+      const defaultSMSProvider = await this.smsRepository.findOne({
+        where: { is_default: true },
+      });
+      if (!defaultSMSProvider) {
+        throw new HttpException(
+          'No default SMS provider found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      try {
+        await this.smsService.sendOTP({
+          providerEntity: defaultSMSProvider,
+          message: `Use the One Time Password (OTP) code below ${otpCode}`,
+          phoneNumber: payload?.intl_phone_number,
+        });
+      } catch (error) {
+        console.log(error);
+        throw new HttpException(
+          `Error occurred sending otp ${error}`,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      const currentUserOTP = await this.otpRepository.findOne({
+        where: { user: userData },
+      });
+      if (currentUserOTP) {
+        // OTP Already exists for this user so update it here
+        await this.otpRepository.update(
+          { user: userData },
+          {
+            code: otpCode,
+            expired: false,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000),
+            updated_at: new Date(),
+          },
+        );
+      } else {
+        // No OTP so add new
+        const newOTP = this.otpRepository.create({
+          code: otpCode,
+          user: userData,
+          expired: false,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000),
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+        await this.otpRepository.save(newOTP);
+      }
+
+      return {
+        message: 'OTP code sent successfully',
       };
     }
   }
@@ -275,6 +368,135 @@ export class RiderAuthService {
     }
   }
 
+  async loginPhone(loginUserDTO: LoginPhoneDTO) {
+    console.log('User Payload from Client :: ', loginUserDTO);
+    if (!loginUserDTO) {
+      throw new HttpException('Payload not provided !!!', HttpStatus.FORBIDDEN);
+    }
+    const userDB = await this.riderService.findRiderByPhone(
+      loginUserDTO?.phone_number?.trim(),
+    );
+    console.log(userDB);
+
+    if (!userDB) {
+      throw new HttpException(
+        {
+          message: 'Phone number not registered on this platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.DELETED) {
+      throw new HttpException(
+        {
+          message: 'Account does not exist on our platform!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.SUSPENDED) {
+      throw new HttpException(
+        {
+          message: 'Account currently on hold',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // send otp to phone
+    return await this.sendOTPPhone({
+      phone_number: loginUserDTO.phone_number,
+      intl_phone_number: loginUserDTO.intl_phone_number,
+    });
+  }
+
+  async verifyPhoneLoginOTP(reqPayload: VerifyLoginPhoneDTO) {
+    console.log('VERIGY PHONE PAYLOAD ::: ', reqPayload);
+
+    const userDb = await this.riderService.findRiderByPhone(
+      reqPayload?.phone_number,
+    );
+    if (!userDb) {
+      throw new HttpException(
+        {
+          message: 'User record not found',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const otpDb = await this.otpRepository.findOne({
+      where: { user: { id: userDb?.id } },
+    });
+
+    if (!otpDb) {
+      throw new HttpException(
+        {
+          message: 'OTP data not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now compare this otp code and the one saved to the database
+    if (otpDb?.code !== reqPayload.code) {
+      throw new HttpException(
+        {
+          message: 'OTP code not valid',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (otpDb.expired || new Date() > otpDb.expires_at) {
+      // Mark OTP as expired in the database for consistency
+      otpDb.expired = true;
+      await this.otpRepository.save(otpDb);
+
+      throw new HttpException(
+        {
+          message: 'OTP code has expired',
+          status: HttpStatus.BAD_REQUEST,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // await this.otpService.removeOtp(otpDb?.id);
+    await this.otpRepository.delete({ id: otpDb?.id });
+    // Now set user's email_verified to true
+    await this.riderService.updateUser(userDb?.email_address, {
+      is_email_verified: true,
+      status: UserStatus.ACTIVE,
+      last_login: userDb?.next_login,
+      next_login: new Date(),
+    });
+
+    const usere = await this.riderService.findRiderByPhone(
+      reqPayload?.phone_number,
+    );
+
+    const { password, ...usr } = usere;
+    const payload = {
+      sub: userDb?.email_address,
+      username: userDb?.first_name,
+    };
+
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+      message: 'Logged in successfully',
+      user: usr,
+    };
+  }
+
   async sendPasswordResetEmail(email_address: string) {
     console.log('User Payload from Client :: ', email_address);
     if (!email_address) {
@@ -292,7 +514,7 @@ export class RiderAuthService {
       );
     }
     // Send OTP Code here
-    const otpCode = generateOTP();
+    const otpCode = generateOTP(4);
     const emailSent = await this.mailerService.sendMail({
       to: email_address,
       subject: 'New OTP Sent',

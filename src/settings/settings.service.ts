@@ -426,13 +426,15 @@ export class SettingsService {
       );
     }
 
-    const updateGateway = this.gatewayRepository.create({
-      ...payload,
-      ...gateway,
-      updated_at: new Date(),
-    });
+    gateway.logo = payload?.logo ?? gateway?.logo;
+    gateway.name = payload?.name ?? gateway?.name;
+    gateway.provider = payload?.provider ?? gateway?.provider;
+    gateway.public_key = payload?.public_key ?? gateway?.public_key;
+    gateway.secret_key = payload?.private_key ?? gateway?.secret_key;
+    gateway.encryption = payload?.encryption ?? gateway?.encryption;
+    gateway.updated_at = new Date();
 
-    const updatedGateway = await this.gatewayRepository.save(updateGateway);
+    const updatedGateway = await this.gatewayRepository.save(gateway);
 
     console.log('JKJS JHSA ::: ', updatedGateway);
 

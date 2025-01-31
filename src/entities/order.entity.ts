@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Customer } from './customer.entity';
@@ -17,6 +17,7 @@ import { OrderStatus } from 'src/enums/order.status.enum';
 import { ReceiverI } from 'src/commons/interfaces/receiver.interface';
 import { ShippingType } from 'src/enums/shipping.type.enum';
 import { DeliveryType } from 'src/enums/delivery.type.enum';
+import { PaymentMethod } from 'src/enums/payment-method.enum';
 
 @Entity({ name: 'orders' })
 export class Order {
@@ -27,7 +28,55 @@ export class Order {
   order_id: string;
 
   @Column({ nullable: false })
-  amount: number;
+  total_amount: number;
+
+  @Column({ nullable: true })
+  vendor_note?: string;
+
+  @Column({ nullable: true })
+  rider_note?: string;
+
+  @Column({ nullable: false })
+  access_code: string;
+
+  @Column({ nullable: true })
+  delivery_fee?: number;
+
+  @Column({ nullable: false, default: 100 })
+  service_charge: number;
+
+  @Column({ nullable: false, default: 0 })
+  coupon_discount: number;
+
+  @Column({ nullable: true })
+  delivery_time: string;
+
+  @Column({ nullable: true })
+  rider_commission?: number;
+
+  @Column({ nullable: true })
+  pickup_address?: string;
+
+  @Column({ nullable: true })
+  pickup_addr_lat?: string;
+
+  @Column({ nullable: true })
+  pickup_addr_lng?: string;
+
+  @Column({ nullable: true })
+  delivery_address?: string;
+
+  @Column({ nullable: true })
+  delivery_addr_lat?: string;
+
+  @Column({ nullable: true })
+  delivery_addr_lng?: string;
+
+  @Column({
+    type: 'enum',
+    enum: PaymentMethod,
+  })
+  payment_method: PaymentMethod;
 
   @Column({ type: 'json', nullable: false })
   items: OrderItemI[];
@@ -35,19 +84,19 @@ export class Order {
   @Column({ type: 'json', nullable: true })
   receiver?: ReceiverI;
 
-  @OneToOne(() => Customer, { nullable: true })
+  @ManyToOne(() => Customer, { nullable: true })
   @JoinColumn()
   customer?: Customer;
 
-  @OneToOne(() => Operator, { nullable: true })
+  @ManyToOne(() => Operator, { nullable: true })
   @JoinColumn()
   operator?: Operator;
 
-  @OneToOne(() => Vendor, { nullable: true })
+  @ManyToOne(() => Vendor, { nullable: true })
   @JoinColumn()
   vendor?: Vendor;
 
-  @OneToOne(() => Rider, { nullable: true })
+  @ManyToOne(() => Rider, { nullable: true })
   @JoinColumn()
   rider: Rider;
 
@@ -62,6 +111,9 @@ export class Order {
 
   @Column({ type: 'enum', enum: DeliveryType, nullable: false })
   delivery_type: DeliveryType;
+
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  order_delivered_at?: Date | null;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

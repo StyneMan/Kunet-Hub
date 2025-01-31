@@ -6,11 +6,13 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { UserType } from 'src/enums/user.type.enum';
 import { Zone } from './zone.entity';
+import { Bike } from './bike.entity';
 
 @Entity({ name: 'riders' })
 export class Rider {
@@ -37,6 +39,12 @@ export class Rider {
 
   @Column({ default: false })
   is_email_verified: boolean;
+
+  @Column({ default: false })
+  is_online: boolean;
+
+  @Column({ default: false })
+  today_orders: number;
 
   @Column({ type: 'enum', enum: IdentityType, nullable: false })
   identity_type: IdentityType;
@@ -65,6 +73,12 @@ export class Rider {
   @Column({ nullable: true, default: 1.0 })
   rating: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })
+  current_lat: number;
+
+  @Column({ type: 'decimal', precision: 11, scale: 8, nullable: true })
+  current_lng: number;
+
   @Column({ default: false })
   is_kyc_completed: boolean;
 
@@ -92,6 +106,12 @@ export class Rider {
   @ManyToOne(() => Zone)
   @JoinColumn()
   zone: Zone;
+
+  @OneToMany(() => Bike, (bike) => bike.rider, {
+    cascade: true,
+    nullable: true,
+  })
+  vehicle: Bike;
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   kyc_completed_at?: Date | null;

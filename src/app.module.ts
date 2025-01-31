@@ -7,7 +7,6 @@ import { RidersModule } from './riders/riders.module';
 import { OrdersModule } from './orders/orders.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { ProductsModule } from './products/products.module';
-import { PaymentsModule } from './payments/payments.module';
 import { ParcelsModule } from './parcels/parcels.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -66,6 +65,14 @@ import { PackOption } from './entities/pack.option.entity';
 import { CustomerFavourites } from './entities/customer.favourites.entity';
 import { CartItem } from './entities/cart.item.entity';
 import { SocketModule } from './socket/socket.module';
+import { CustomerTransactions } from './entities/customer.transactions.entity';
+import { Coupon } from './entities/coupon.entity';
+import { NotificationService } from './notification/notification.service';
+import { Chat } from './entities/chat.entity';
+import { ChatMessage } from './entities/chat.message.entity';
+import { ChatModule } from './chat/chat.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SystemTransactions } from './entities/system.transactions.entity';
 
 @Module({
   imports: [
@@ -96,8 +103,10 @@ import { SocketModule } from './socket/socket.module';
           RiderDocument,
           OperatorDocument,
           Size,
+          Chat,
           Product,
           Order,
+          ChatMessage,
           PaymentEntity,
           AdminOTP,
           CustomerOTP,
@@ -108,6 +117,7 @@ import { SocketModule } from './socket/socket.module';
           Parcel,
           Vendor,
           Zone,
+          Coupon,
           Category,
           Cart,
           Legal,
@@ -121,7 +131,9 @@ import { SocketModule } from './socket/socket.module';
           PackOption,
           SMSProviders,
           CustomerWallet,
+          SystemTransactions,
           CustomerFavourites,
+          CustomerTransactions,
         ],
         cache: false,
         synchronize: true,
@@ -154,20 +166,7 @@ import { SocketModule } from './socket/socket.module';
       }),
       inject: [ConfigService],
     }),
-    // MailerModule.forRoot({
-    //   transport: {
-    //     host: 'myfastbuy.com', // 'smtp.gmail.com',
-    //     port: 465,
-    //     secure: true,
-    //     auth: {
-    //       user: 'hello@myfastbuy.com', // app.quickpocket@gmail.com',
-    //       pass: 'Q}FzrID8kgk2', // 'savhpzwofeqzrhcd',
-    //     },
-    //   },
-    //   defaults: {
-    //     from: '"FastBuy" <hello@myfastbuy.com>',
-    //   },
-    // }),
+    ScheduleModule.forRoot(),
     ServeStaticModule.forRoot(
       {
         rootPath: join(__dirname, '..', 'uploads'), // Specify the directory where your upload files are located
@@ -186,13 +185,13 @@ import { SocketModule } from './socket/socket.module';
     OrdersModule,
     VendorsModule,
     ProductsModule,
-    PaymentsModule,
     ParcelsModule,
     ZonesModule,
     BankModule,
     SettingsModule,
     SupportsModule,
     SocketModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [
@@ -203,6 +202,7 @@ import { SocketModule } from './socket/socket.module';
     TermiiService,
     BroadnetService,
     SendChampService,
+    NotificationService,
   ],
 })
 export class AppModule {}

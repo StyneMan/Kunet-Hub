@@ -1,10 +1,4 @@
-import {
-  IsEnum,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber } from 'class-validator';
 import { ShippingType } from 'src/enums/shipping.type.enum';
 
 export class CalculateParcelCostDTO {
@@ -12,13 +6,21 @@ export class CalculateParcelCostDTO {
   @IsNumber()
   totalWeight: number;
 
-  @IsOptional()
-  @IsString()
-  senderAddress: string;
+  @IsNotEmpty()
+  @IsNumber()
+  senderLat: number;
 
-  @IsOptional()
-  @IsString()
-  receiverAddress: string;
+  @IsNotEmpty()
+  @IsNumber()
+  senderLng: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  receiverLat: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  receiverLng: number;
 
   @IsNotEmpty()
   @IsEnum(ShippingType)

@@ -4,3 +4,9 @@ export enum UserType {
   OPERATOR = 'operator',
   ADMIN = 'admin',
 }
+
+export enum ChatMemberType {
+  RIDER = 'rider',
+  CUSTOMER = 'customer',
+  VENDOR = 'vendor',
+}

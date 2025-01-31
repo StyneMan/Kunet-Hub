@@ -474,8 +474,8 @@ export class AuthController {
       },
     }),
   )
-  async sendPasswordResetEmailOperator(@Body() email_address: string) {
-    return this.authService.sendPasswordResetEmailOperator(email_address);
+  async sendPasswordResetEmailOperator(@Body() payload: SendOTPDTO) {
+    return this.authService.sendPasswordResetEmailOperator(payload);
   }
 
   @Post('operator/resetPassword')
@@ -554,6 +554,56 @@ export class AuthController {
     return this.authService.resendOTPRider(payload);
   }
 
+  @Post('rider/login/phone')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async loginRiderPhone(@Body() body: LoginPhoneDTO) {
+    return this.authService.loginRiderPhone(body);
+  }
+
+  @Post('rider/phone/verifyOTP')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async verifyPhoneOTPRider(@Body() payload: VerifyLoginPhoneDTO) {
+    return this.authService.verifyRiderPhoneLoginOTP(payload);
+  }
+
   @Post('rider/verifyOTP')
   @UsePipes(
     new ValidationPipe({
@@ -600,8 +650,8 @@ export class AuthController {
       },
     }),
   )
-  async sendPasswordResetEmailRider(@Body() email_address: string) {
-    return this.authService.sendPasswordResetEmailRider(email_address);
+  async sendPasswordResetEmailRider(@Body() payload: SendOTPDTO) {
+    return this.authService.sendPasswordResetEmailRider(payload?.email_address);
   }
 
   @Post('rider/resetPassword')
