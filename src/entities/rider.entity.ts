@@ -13,6 +13,7 @@ import { UserStatus } from 'src/enums/user.status.enum';
 import { UserType } from 'src/enums/user.type.enum';
 import { Zone } from './zone.entity';
 import { Bike } from './bike.entity';
+import { BikeType } from 'src/enums/bike.type.enum';
 
 @Entity({ name: 'riders' })
 export class Rider {
@@ -112,6 +113,12 @@ export class Rider {
     nullable: true,
   })
   vehicle: Bike;
+
+  @Column({ nullable: true, default: '123abc' })
+  bike_reg_number?: string;
+
+  @Column({ type: 'enum', enum: BikeType })
+  bike_type: BikeType;
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   kyc_completed_at?: Date | null;

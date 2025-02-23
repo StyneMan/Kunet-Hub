@@ -41,15 +41,6 @@ export class CreateVendorDTO {
   identity_number: string;
 
   @IsNotEmpty()
-  @IsString()
-  @IsPhoneNumber()
-  business_phone: string;
-
-  @IsEmail()
-  @IsNotEmpty()
-  business_email: string;
-
-  @IsNotEmpty()
   @IsEnum(IdentityType)
   identity_type: IdentityType;
 
@@ -71,10 +62,6 @@ export class CreateVendorDTO {
   @IsNotEmpty()
   @IsString()
   regNo: string;
-
-  @IsNotEmpty()
-  @IsUrl()
-  logo: string;
 
   @IsOptional()
   @IsUrl()
@@ -111,12 +98,4 @@ export class CreateVendorDTO {
   @IsNotEmpty()
   @IsString()
   zoneId: string;
-
-  @IsNotEmpty()
-  @IsString()
-  lat: string;
-
-  @IsNotEmpty()
-  @IsString()
-  lng: string;
 }

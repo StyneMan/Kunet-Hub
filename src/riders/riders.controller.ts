@@ -189,8 +189,18 @@ export class RidersController {
     @Param('id') id: string,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 25,
+    @Query('startDate') startDate?: Date | null,
+    @Query('endDate') endDate?: Date | null,
+    @Query('filterBy') filterBy?: 'daily' | 'weekly' | 'monthly' | 'yearly',
   ) {
-    return await this.riderService.findRiderTransactions(page, limit, id);
+    return await this.riderService.riderTransactions(
+      page,
+      limit,
+      id,
+      startDate,
+      endDate,
+      filterBy,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

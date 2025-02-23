@@ -12,6 +12,7 @@ import { Customer } from './customer.entity';
 import { Vendor } from './vendor.entity';
 import { CartItem } from './cart.item.entity';
 import { Exclude } from 'class-transformer';
+import { VendorLocation } from './vendor.location.entity';
 
 @Entity({ name: 'carts' })
 export class Cart {
@@ -38,6 +39,11 @@ export class Cart {
   @ManyToOne(() => Vendor)
   @JoinColumn()
   vendor: Vendor;
+
+  @ManyToOne(() => VendorLocation, {
+    onDelete: 'CASCADE',
+  })
+  vendor_location: VendorLocation;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

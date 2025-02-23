@@ -23,7 +23,10 @@ import { ShippingType } from 'src/enums/shipping.type.enum';
 import { CalculateDeliveryCostDTO } from './dtos/calculate.delivery.cost.dto';
 // import { Client } from '@googlemaps/google-maps-services-js';
 import axios from 'axios';
-import { VendorStatus } from 'src/enums/vendor.status.enum';
+import {
+  // VendorLocationStatus,
+  VendorStatus,
+} from 'src/enums/vendor.status.enum';
 import { DeliveryType } from 'src/enums/delivery.type.enum';
 import { SocketGateway } from 'src/socket/socket.gateway';
 import { MailerService } from '@nestjs-modules/mailer';
@@ -35,6 +38,8 @@ import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { TransactionType } from 'src/enums/transaction.type.enum';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 @Injectable()
 export class OrdersService {
@@ -43,6 +48,8 @@ export class OrdersService {
   constructor(
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
+    @InjectRepository(DummyOrder)
+    private dummyOrderRepository: Repository<DummyOrder>,
     @InjectRepository(Customer)
     private customerRepository: Repository<Customer>,
     @InjectRepository(Rider)
@@ -57,6 +64,8 @@ export class OrdersService {
     private riderTransactionRepository: Repository<RiderTransactions>,
     @InjectRepository(VendorTransactions)
     private vendorTransactionRepository: Repository<VendorTransactions>,
+    @InjectRepository(VendorLocation)
+    private readonly vendorLocationRepository: Repository<VendorLocation>,
     @InjectRepository(SystemTransactions)
     private systemTransactionRepository: Repository<SystemTransactions>,
     @InjectRepository(RiderWallet)
@@ -66,6 +75,283 @@ export class OrdersService {
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
   ) {}
+
+  async createDummyOrder(
+    orderId: string,
+    accessCode: string,
+    user_type: UserType,
+    payload: CreateOrderDTO,
+  ) {
+    if (user_type === UserType.CUSTOMER) {
+      if (!payload?.customerId) {
+        throw new HttpException(
+          {
+            message: 'Customer ID is required',
+            status: HttpStatus.BAD_REQUEST,
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const customer = await this.customerRepository.findOne({
+        where: { id: payload?.customerId },
+      });
+
+      if (!customer) {
+        throw new HttpException(
+          {
+            message: 'Customer with gven ID not found',
+            status: HttpStatus.NOT_FOUND,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Check for order type
+      if (payload?.orderType === OrderType.PARCEL_ORDER) {
+        if (payload?.receiver === null) {
+          throw new HttpException(
+            'Receiver information is required',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        // Parcel order creation here
+        const newDummyOrder = this.dummyOrderRepository.create({
+          total_amount: payload?.amount,
+          delivery_type: DeliveryType.DELIVERY,
+          delivery_fee: payload?.deliveryFee,
+          delivery_time: payload?.deliveryTime,
+          receiver: payload?.receiver,
+          pickup_addr_lat: payload?.pickupAddrLat,
+          pickup_addr_lng: payload?.pickupAddrLng,
+          pickup_address: payload?.pickupAddress,
+          shipping_type: payload?.shippingType,
+          payment_method: payload?.paymentMethod,
+          rider_commission: payload?.riderCommission,
+          rider_note: payload?.riderNote,
+          order_status: OrderStatus.PENDING,
+          delivery_addr_lat: payload?.deliveryAddrLat,
+          delivery_addr_lng: payload?.deliveryAddrLng,
+          delivery_address: payload?.deliveryAddress,
+          items: payload?.items,
+          access_code: accessCode,
+          order_id: orderId,
+          order_type: payload?.orderType,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        newDummyOrder.customer = customer;
+        const savedOrder = await this.dummyOrderRepository.save(newDummyOrder);
+
+        return {
+          message: 'New order created successfully',
+          data: savedOrder,
+        };
+      } else {
+        // Other types of orders (Restaurant and Store)
+        const vendorLocation = await this.vendorLocationRepository.findOne({
+          where: { id: payload?.vendorLocationId },
+          relations: ['vendor'],
+        });
+
+        if (!vendorLocation) {
+          throw new HttpException(
+            {
+              message: 'Vendor not found',
+              status: HttpStatus.NOT_FOUND,
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
+          throw new HttpException(
+            {
+              message: 'Vendor not active',
+              status: HttpStatus.FORBIDDEN,
+            },
+            HttpStatus.FORBIDDEN,
+          );
+        }
+
+        const newOrder = this.dummyOrderRepository.create({
+          total_amount: payload?.amount,
+          delivery_type: DeliveryType.DELIVERY,
+          delivery_fee: payload?.deliveryFee,
+          delivery_time: payload?.deliveryTime,
+          shipping_type: payload?.shippingType,
+          payment_method: payload?.paymentMethod,
+          rider_commission: payload?.riderCommission,
+          rider_note: payload?.riderNote,
+          order_status: OrderStatus.PENDING,
+          delivery_addr_lat: payload?.deliveryAddrLat,
+          delivery_addr_lng: payload?.deliveryAddrLng,
+          delivery_address: payload?.deliveryAddress,
+          items: payload?.items,
+          access_code: accessCode,
+          order_id: orderId,
+          vendor_note: payload?.vendorNote,
+          order_type: payload?.orderType,
+          addOns: payload?.addOns,
+          variations: payload?.variations,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        newOrder.customer = customer;
+        newOrder.vendor_location = vendorLocation;
+        newOrder.vendor = vendorLocation?.vendor;
+
+        const savedOrder = await this.dummyOrderRepository.save(newOrder);
+
+        return {
+          message: 'New order created successfully',
+          data: savedOrder,
+        };
+      }
+    } else if (user_type === UserType.OPERATOR) {
+      if (!payload?.operatorId) {
+        throw new HttpException(
+          {
+            message: 'Operator ID is required',
+            status: HttpStatus.BAD_REQUEST,
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const vendorLocation = await this.vendorLocationRepository.findOne({
+        where: { id: payload?.vendorLocationId },
+        relations: ['vendor'],
+      });
+
+      if (!vendorLocation) {
+        throw new HttpException(
+          {
+            message: 'Vendor not found',
+            status: HttpStatus.NOT_FOUND,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const operator = await this.operatorRepository.findOne({
+        where: { id: payload?.operatorId },
+      });
+
+      if (!operator) {
+        throw new HttpException(
+          {
+            message: 'Customer with gven ID not found',
+            status: HttpStatus.NOT_FOUND,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
+        throw new HttpException(
+          {
+            message: 'Vendor not active',
+            status: HttpStatus.FORBIDDEN,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      // Check for order type
+      if (payload?.orderType === OrderType.PARCEL_ORDER) {
+        // Parcel order creation here
+        const newOrder = this.dummyOrderRepository.create({
+          total_amount: payload?.amount,
+          delivery_type: DeliveryType.DELIVERY,
+          delivery_fee: payload?.deliveryFee,
+          delivery_time: payload?.deliveryTime,
+          receiver: payload?.receiver,
+          shipping_type: payload?.shippingType,
+          payment_method: payload?.paymentMethod,
+          rider_commission: payload?.riderCommission,
+          rider_note: payload?.riderNote,
+          order_status: OrderStatus.PENDING,
+          delivery_addr_lat: payload?.deliveryAddrLat,
+          delivery_addr_lng: payload?.deliveryAddrLng,
+          delivery_address: payload?.deliveryAddress,
+          items: payload?.items,
+          access_code: accessCode,
+          order_id: orderId,
+          order_type: payload?.orderType,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        newOrder.operator = operator;
+        const savedOrder = await this.dummyOrderRepository.save(newOrder);
+
+        return {
+          message: 'New order created successfully',
+          data: savedOrder,
+        };
+      } else {
+        // Other types of orders (Restaurant and Store)
+        const vendorLocation = await this.vendorLocationRepository.findOne({
+          where: { id: payload?.vendorLocationId },
+          relations: ['vendor'],
+        });
+
+        if (!vendorLocation) {
+          throw new HttpException(
+            {
+              message: 'Vendor not found',
+              status: HttpStatus.NOT_FOUND,
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
+          throw new HttpException(
+            {
+              message: 'Vendor not active',
+              status: HttpStatus.FORBIDDEN,
+            },
+            HttpStatus.FORBIDDEN,
+          );
+        }
+
+        const newOrder = this.dummyOrderRepository.create({
+          total_amount: payload?.amount,
+          delivery_type: DeliveryType.DELIVERY,
+          delivery_fee: payload?.deliveryFee,
+          delivery_time: payload?.deliveryTime,
+          receiver: payload?.receiver,
+          shipping_type: payload?.shippingType,
+          payment_method: payload?.paymentMethod,
+          rider_commission: payload?.riderCommission,
+          rider_note: payload?.riderNote,
+          order_status: OrderStatus.PENDING,
+          delivery_addr_lat: payload?.deliveryAddrLat,
+          delivery_addr_lng: payload?.deliveryAddrLng,
+          delivery_address: payload?.deliveryAddress,
+          items: payload?.items,
+          access_code: accessCode,
+          order_id: orderId,
+          vendor_note: payload?.vendorNote,
+          order_type: payload?.orderType,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        newOrder.operator = operator;
+        newOrder.vendor_location = vendorLocation;
+
+        const savedOrder = await this.dummyOrderRepository.save(newOrder);
+        return {
+          message: 'New order created successfully',
+          data: savedOrder,
+        };
+      }
+    }
+  }
 
   async createOrder(
     orderId: string,
@@ -100,6 +386,12 @@ export class OrdersService {
 
       // Check for order type
       if (payload?.orderType === OrderType.PARCEL_ORDER) {
+        if (payload?.receiver === null) {
+          throw new HttpException(
+            'Receiver information is required',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
         // Parcel order creation here
         const newOrder = this.orderRepository.create({
           total_amount: payload?.amount,
@@ -135,11 +427,12 @@ export class OrdersService {
         };
       } else {
         // Other types of orders (Restaurant and Store)
-        const vendor = await this.vendorRepository.findOne({
-          where: { id: payload?.vendorId },
+        const vendorLocation = await this.vendorLocationRepository.findOne({
+          where: { id: payload?.vendorLocationId },
+          relations: ['vendor'],
         });
 
-        if (!vendor) {
+        if (!vendorLocation) {
           throw new HttpException(
             {
               message: 'Vendor not found',
@@ -149,7 +442,7 @@ export class OrdersService {
           );
         }
 
-        if (vendor?.status !== VendorStatus.ACTIVE) {
+        if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
           throw new HttpException(
             {
               message: 'Vendor not active',
@@ -164,7 +457,6 @@ export class OrdersService {
           delivery_type: DeliveryType.DELIVERY,
           delivery_fee: payload?.deliveryFee,
           delivery_time: payload?.deliveryTime,
-          receiver: payload?.receiver,
           shipping_type: payload?.shippingType,
           payment_method: payload?.paymentMethod,
           rider_commission: payload?.riderCommission,
@@ -178,12 +470,15 @@ export class OrdersService {
           order_id: orderId,
           vendor_note: payload?.vendorNote,
           order_type: payload?.orderType,
+          addOns: payload?.addOns,
+          variations: payload?.variations,
           created_at: new Date(),
           updated_at: new Date(),
         });
 
         newOrder.customer = customer;
-        newOrder.vendor = vendor;
+        newOrder.vendor_location = vendorLocation;
+        newOrder.vendor = vendorLocation?.vendor;
 
         const savedOrder = await this.orderRepository.save(newOrder);
 
@@ -202,11 +497,12 @@ export class OrdersService {
           HttpStatus.BAD_REQUEST,
         );
       }
-      const vendor = await this.vendorRepository.findOne({
-        where: { id: payload?.vendorId },
+      const vendorLocation = await this.vendorLocationRepository.findOne({
+        where: { id: payload?.vendorLocationId },
+        relations: ['vendor'],
       });
 
-      if (!vendor) {
+      if (!vendorLocation) {
         throw new HttpException(
           {
             message: 'Vendor not found',
@@ -230,7 +526,7 @@ export class OrdersService {
         );
       }
 
-      if (vendor?.status !== VendorStatus.ACTIVE) {
+      if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
         throw new HttpException(
           {
             message: 'Vendor not active',
@@ -274,11 +570,12 @@ export class OrdersService {
         };
       } else {
         // Other types of orders (Restaurant and Store)
-        const vendor = await this.vendorRepository.findOne({
-          where: { id: payload?.vendorId },
+        const vendorLocation = await this.vendorLocationRepository.findOne({
+          where: { id: payload?.vendorLocationId },
+          relations: ['vendor'],
         });
 
-        if (!vendor) {
+        if (!vendorLocation) {
           throw new HttpException(
             {
               message: 'Vendor not found',
@@ -288,7 +585,7 @@ export class OrdersService {
           );
         }
 
-        if (vendor?.status !== VendorStatus.ACTIVE) {
+        if (vendorLocation?.vendor?.status !== VendorStatus.ACTIVE) {
           throw new HttpException(
             {
               message: 'Vendor not active',
@@ -322,7 +619,7 @@ export class OrdersService {
         });
 
         newOrder.operator = operator;
-        newOrder.vendor = vendor;
+        newOrder.vendor_location = vendorLocation;
 
         const savedOrder = await this.orderRepository.save(newOrder);
         return {
@@ -394,6 +691,9 @@ export class OrdersService {
           .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
           .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
           .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
           .getMany(), // Execute query to fetch data
@@ -404,6 +704,9 @@ export class OrdersService {
           .leftJoin('order.vendor', 'vendor') // Join the related vendor table
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -452,7 +755,10 @@ export class OrdersService {
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
         .where('order.order_status = :status', { status }) // Filter by vendor ID
-        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
+        .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -463,6 +769,9 @@ export class OrdersService {
         .leftJoin('order.vendor', 'vendor') // Join the related vendor table
         .leftJoin('order.rider', 'rider') // Join the related vendor table
         .where('order.order_status = :status', { status }) // Filter by vendor ID
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -508,6 +817,9 @@ export class OrdersService {
           .leftJoinAndSelect('order.rider', 'rider') // Join the related product tabl
           .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
           .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
+          // .andWhere('order.paid_at != :paid_at', {
+          //   paid_at: null,
+          // })
           .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
@@ -520,6 +832,9 @@ export class OrdersService {
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
           .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
+          // .andWhere('order.paid_at != :paid_at', {
+          //   paid_at: null,
+          // })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -539,6 +854,7 @@ export class OrdersService {
           .createQueryBuilder('order') // Alias for the table
           .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
           .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+          .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
           .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
           // .select([
           //   'activity',
@@ -551,6 +867,9 @@ export class OrdersService {
           //   'admin.type',
           // ]) // Select only the required fields
           .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
+          // .andWhere('order.paid_at != :paid_at', {
+          //   paid_at: null,
+          // })
           .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
@@ -562,6 +881,9 @@ export class OrdersService {
           .leftJoin('order.vendor', 'vendor') // Join the related vendor table
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('vendor.id = :vendorId', { vendorId }) // Filter by vendor ID
+          // .andWhere('order.paid_at != :paid_at', {
+          //   paid_at: null,
+          // })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -574,6 +896,188 @@ export class OrdersService {
         perPage: limit,
       };
     }
+  }
+
+  async branchOrders(
+    branchId: string,
+    page: number,
+    limit: number,
+    status?: OrderStatus,
+  ) {
+    // First find this vendor first
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: branchId },
+    });
+
+    if (!vendorLocation) {
+      throw new HttpException(
+        {
+          message: 'Vendor location record not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (status) {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+      // Get paginated data and total count
+      const [data, total] = await Promise.all([
+        this.orderRepository
+          .createQueryBuilder('order') // Alias for the table
+          .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+          .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+          .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
+          .leftJoinAndSelect('order.rider', 'rider') // Join the related product tabl
+          .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
+          .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
+          .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records
+          .getMany(), // Execute query to fetch data
+
+        this.orderRepository
+          .createQueryBuilder('order') // Alias for the table
+          .leftJoin('order.customer', 'customer') // Join the related vendor table
+          .leftJoin('order.vendor', 'vendor') // Join the related vendor table
+          .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
+          .leftJoin('order.rider', 'rider') // Join the related vendor table
+          .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
+          .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
+          .getCount(), // Count total records for pagination
+      ]);
+
+      // Return the paginated response
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    } else {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+      // Get paginated data and total count
+      const [data, total] = await Promise.all([
+        this.orderRepository
+          .createQueryBuilder('order') // Alias for the table
+          .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+          .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+          .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
+          .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+          // .select([
+          //   'activity',
+          //   'admin.first_name',
+          //   'admin.last_name',
+          //   'admin.emai_address',
+          //   'admin.phone_number',
+          //   'admin.photo_url',
+          //   'admin.role',
+          //   'admin.type',
+          // ]) // Select only the required fields
+          .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
+          .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records
+          .getMany(), // Execute query to fetch data
+
+        this.orderRepository
+          .createQueryBuilder('order') // Alias for the table
+          .leftJoin('order.customer', 'customer') // Join the related vendor table
+          .leftJoin('order.vendor', 'vendor') // Join the related vendor table
+          .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
+          .leftJoin('order.rider', 'rider') // Join the related vendor table
+          .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
+          .andWhere('order.paid_at != :paid_at', {
+            paid_at: null,
+          })
+          .getCount(), // Count total records for pagination
+      ]);
+
+      // Return the paginated response
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    }
+  }
+
+  async vendorAcceptedOrders(vendorId: string, page: number, limit: number) {
+    // Check if vendor exists
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: vendorId },
+    });
+    if (!vendor) {
+      throw new HttpException(
+        { message: 'Vendor record not found', status: HttpStatus.NOT_FOUND },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Pagination offset
+    const orderStatuses = [
+      OrderStatus.IN_DELIVERY,
+      OrderStatus.PROCESSING,
+      OrderStatus.READY_FOR_DELIVERY,
+      OrderStatus.READY_FOR_PICKUP,
+      OrderStatus.RIDER_ACCEPTED,
+      OrderStatus.RIDER_ARRIVED_CUSTOMER,
+      OrderStatus.RIDER_ARRIVED_VENDOR,
+      OrderStatus.RIDER_PICKED_ORDER,
+    ];
+
+    // Fetch paginated orders and total count
+    const [data, total] = await Promise.all([
+      this.orderRepository
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.customer', 'customer')
+        .leftJoinAndSelect('order.vendor', 'vendor')
+        .leftJoinAndSelect('order.rider', 'rider')
+        .where('vendor.id = :vendorId', { vendorId })
+        .andWhere('order.order_status IN (:...orderStatuses)', {
+          orderStatuses,
+        })
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
+        .orderBy('order.created_at', 'DESC')
+        .skip(skip)
+        .take(limit)
+        .getMany(),
+
+      this.orderRepository
+        .createQueryBuilder('order')
+        .leftJoin('order.vendor', 'vendor')
+        .where('vendor.id = :vendorId', { vendorId })
+        .andWhere('order.order_status IN (:...orderStatuses)', {
+          orderStatuses,
+        })
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
+        .getCount(),
+    ]);
+
+    // Return paginated response
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
   }
 
   async calculateParcelDeliveryCost(payload: CalculateParcelCostDTO) {
@@ -685,19 +1189,16 @@ export class OrdersService {
     // const client = new Client({});
     console.log('FEES ::: ', fees);
 
-    const vendor = await this.vendorRepository.findOne({
-      where: { id: payload?.vendorId },
+    const vendor = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.vendorLocationId },
     });
     if (!vendor) {
       throw new HttpException('Vendor not found', HttpStatus.FORBIDDEN);
     }
 
-    if (vendor.status !== VendorStatus.ACTIVE) {
-      throw new HttpException(
-        'Vendor account not active',
-        HttpStatus.FORBIDDEN,
-      );
-    }
+    // if (vendor..status !== VendorLocationStatus.ACTIVE) {
+    //   throw new HttpException('Vendor not active', HttpStatus.FORBIDDEN);
+    // }
 
     let deliveryDistance = 0;
     let deliveryTime = '';
@@ -720,10 +1221,18 @@ export class OrdersService {
       for (let index = 0; index < result?.rows?.length; index++) {
         const element = result?.rows[index];
         console.log('DELIVERY INFO ::: ', element?.elements);
-        console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
-        console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
-        deliveryTime = element?.elements[0]?.duration?.text;
-        deliveryDistance = element?.elements[0]?.distance?.value;
+        if (`${element?.elements[0]?.status}`.includes('ZERO_RESULTS')) {
+          // use default vaalue. GCP API ISSUE
+          console.log('DELIVERY DISTANCE ::: ', 10);
+          console.log('DELIVERY DURATION ::: ', 10);
+          deliveryTime = '1hr';
+          deliveryDistance = 10000;
+        } else {
+          console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
+          console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
+          deliveryTime = element?.elements[0]?.duration?.text;
+          deliveryDistance = element?.elements[0]?.distance?.value;
+        }
       }
 
       const deliveryKM = deliveryDistance / 1000;
@@ -779,7 +1288,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -805,7 +1314,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -831,7 +1340,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -863,7 +1372,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -903,7 +1412,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -912,7 +1421,7 @@ export class OrdersService {
         UserType.RIDER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -944,7 +1453,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -953,7 +1462,7 @@ export class OrdersService {
         UserType.RIDER,
         'refresh-orders',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -984,7 +1493,7 @@ export class OrdersService {
   async matchOrderToRider(orderId: string) {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['vendor'],
+      relations: ['vendor', 'vendor_location'],
     });
 
     if (!order) throw new Error('Order not found');
@@ -1008,8 +1517,8 @@ export class OrdersService {
       nearbyRiders.map(async (rider) => {
         const distance = await calculateDistance(
           {
-            lat: parseFloat(`${order.vendor?.lat}`),
-            lng: parseFloat(`${order.vendor?.lng}`),
+            lat: parseFloat(`${order.vendor_location?.lat}`),
+            lng: parseFloat(`${order.vendor_location?.lng}`),
           },
           { lat: rider.current_lat, lng: rider.current_lng },
         );

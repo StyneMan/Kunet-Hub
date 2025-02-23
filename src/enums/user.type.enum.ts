@@ -8,5 +8,5 @@ export enum UserType {
 export enum ChatMemberType {
   RIDER = 'rider',
   CUSTOMER = 'customer',
-  VENDOR = 'vendor',
+  VENDOR_LOCATION = 'vendor_location',
 }

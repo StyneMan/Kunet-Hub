@@ -46,7 +46,7 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { userId, userType } = payload;
     this.customers[userId] = { socketId: client.id, userType };
-    console.log(`Customer registered: ${userId}, Type: ${userType}`);
+    console.log(`User registered: ${userId}, Type: ${userType}`);
 
     client.emit('notification', { message: 'Welcome to FastBuy!' });
   }

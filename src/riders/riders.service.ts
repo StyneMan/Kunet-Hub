@@ -267,6 +267,7 @@ export class RidersService {
   async findCurrentRider(email_address: string) {
     const rider = await this.riderRepository.findOne({
       where: { email_address: email_address },
+      relations: ['zone'],
     });
 
     if (!rider) {
@@ -361,6 +362,8 @@ export class RidersService {
     }
 
     // Now complete KYC
+    rider.bike_type = payload.bikeType;
+    rider.bike_reg_number = payload?.plateNumber;
     rider.current_lat = payload.latitude;
     rider.current_lng = payload?.longitude;
     rider.first_name = payload?.first_name;
@@ -876,6 +879,112 @@ export class RidersService {
     };
   }
 
+  async riderTransactions(
+    page: number,
+    limit: number,
+    riderID: string,
+    startDate?: Date,
+    endDate?: Date,
+    filterBy?: 'daily' | 'weekly' | 'monthly' | 'yearly',
+  ) {
+    const rider = await this.riderRepository.findOne({
+      where: { id: riderID },
+    });
+
+    if (!rider || rider.status === UserStatus.DELETED) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          message: 'Rider account not found',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    // Create the base query builder
+    const queryBuilder = this.transactionRepository
+      .createQueryBuilder('transaction')
+      .leftJoinAndSelect('transaction.rider', 'rider')
+      .where('rider.id = :riderID', { riderID })
+      .orderBy('transaction.created_at', 'DESC');
+
+    // Apply date filtering based on `filterBy`
+    if (filterBy) {
+      const now = new Date();
+      let startDateFilter: Date, endDateFilter: Date;
+
+      switch (filterBy) {
+        case 'daily':
+          startDateFilter = new Date(now.setHours(0, 0, 0, 0)); // Today 00:00:00
+          endDateFilter = new Date(now.setHours(23, 59, 59, 999)); // Today 23:59:59
+          break;
+
+        case 'weekly':
+          const firstDayOfWeek = new Date(now);
+          firstDayOfWeek.setDate(now.getDate() - now.getDay()); // Start of the week (Sunday)
+          firstDayOfWeek.setHours(0, 0, 0, 0);
+
+          startDateFilter = firstDayOfWeek;
+          endDateFilter = new Date(now.setHours(23, 59, 59, 999)); // Current time
+          break;
+
+        case 'monthly':
+          startDateFilter = new Date(now.getFullYear(), now.getMonth(), 1); // First day of the month
+          endDateFilter = new Date(
+            now.getFullYear(),
+            now.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999,
+          ); // Last day of the month
+          break;
+
+        case 'yearly':
+          startDateFilter = new Date(now.getFullYear(), 0, 1); // First day of the year
+          endDateFilter = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999); // Last day of the year
+          break;
+      }
+
+      queryBuilder.andWhere(
+        'transaction.created_at BETWEEN :startDateFilter AND :endDateFilter',
+        { startDateFilter, endDateFilter },
+      );
+    }
+
+    // Apply custom date range if both startDate and endDate are provided
+    if (startDate && endDate) {
+      queryBuilder.andWhere(
+        'transaction.created_at BETWEEN :startDate AND :endDate',
+        {
+          startDate,
+          endDate,
+        },
+      );
+    }
+
+    const [data, total] = await Promise.all([
+      queryBuilder.skip(skip).take(limit).getMany(),
+
+      this.transactionRepository
+        .createQueryBuilder('transaction')
+        .leftJoin('transaction.rider', 'rider')
+        .where('rider.id = :riderID', { riderID })
+        .getCount(),
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
   async findAllDocuments(page: number, limit: number) {
     const skip = (page - 1) * limit; // Calculate the number of records to skip
 
@@ -1108,6 +1217,12 @@ export class RidersService {
 
     // Now Notify this vendor that the rider has arrivedd to pickup this order
     this.socketGateway.sendVendorNotification(vendor?.id, {
+      order: order,
+      message: 'Dispatch rider has arrived',
+    });
+
+    // Now Notify this vendor that the rider has arrivedd to pickup this order
+    this.socketGateway.sendVendorEvent(vendor?.id, 'refresh-orders', {
       order: order,
       message: 'Dispatch rider has arrived',
     });

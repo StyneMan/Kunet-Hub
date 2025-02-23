@@ -9,7 +9,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Customer } from './customer.entity';
-import { Vendor } from './vendor.entity';
+import { VendorLocation } from './vendor.location.entity';
 
 @Entity({ name: 'customer_favourites' })
 export class CustomerFavourites {
@@ -20,9 +20,9 @@ export class CustomerFavourites {
   @JoinColumn()
   customer: Customer;
 
-  @OneToOne(() => Vendor, { nullable: false })
+  @OneToOne(() => VendorLocation, { nullable: false })
   @JoinColumn()
-  vendor: Vendor;
+  vendor_location: VendorLocation;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

@@ -1,13 +1,13 @@
 import {
   IsAlpha,
-  IsArray,
   IsEmail,
   IsEnum,
   IsNotEmpty,
+  IsOptional,
   IsPhoneNumber,
   IsString,
 } from 'class-validator';
-import { OperatorType } from 'src/enums/operator.type.enum';
+import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 // import { Address } from 'src/typeorm/entities/address';
 
 export class CreateOperatorDTO {
@@ -42,9 +42,9 @@ export class CreateOperatorDTO {
   @IsString()
   city: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  street: string;
+  street?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -56,13 +56,13 @@ export class CreateOperatorDTO {
 
   @IsNotEmpty()
   @IsString()
-  vendor_id: string;
+  vendor_location: string;
 
   @IsNotEmpty()
   @IsEnum(OperatorType)
   operator_type: OperatorType;
 
   @IsNotEmpty()
-  @IsArray()
-  permissions: string[];
+  @IsEnum(OperatorRole)
+  operator_role: OperatorRole;
 }

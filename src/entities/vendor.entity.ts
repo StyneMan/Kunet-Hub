@@ -16,6 +16,8 @@ import { VendorStatus } from 'src/enums/vendor.status.enum';
 import { Zone } from './zone.entity';
 import { Exclude } from 'class-transformer';
 import { Category } from './category.entity';
+import { VendorLocation } from './vendor.location.entity';
+import { VendorDocument } from './vendor.document.entity';
 
 @Entity({ name: 'vendors' })
 export class Vendor {
@@ -24,24 +26,6 @@ export class Vendor {
 
   @Column({ nullable: false })
   name: string;
-
-  @Column({
-    type: 'decimal',
-    precision: 10,
-    scale: 8,
-    nullable: false,
-    default: 6.569984,
-  })
-  lat: number;
-
-  @Column({
-    type: 'decimal',
-    precision: 11,
-    scale: 8,
-    nullable: false,
-    default: 3.342336,
-  })
-  lng: number;
 
   @Column({ nullable: true })
   slogan?: string;
@@ -70,11 +54,8 @@ export class Vendor {
   @Column({ nullable: true })
   wallet_pin: string;
 
-  @Column({ nullable: false })
-  logo: string;
-
-  @Column({ nullable: true, default: 1.0 })
-  rating: number;
+  @Column({ nullable: true })
+  logo?: string;
 
   @OneToOne(() => Operator)
   @JoinColumn()
@@ -84,6 +65,18 @@ export class Vendor {
   @ManyToOne(() => Zone)
   @JoinColumn()
   zone: Zone;
+
+  @Column({ nullable: true, default: '' })
+  business_email?: string;
+
+  @Column({ nullable: true, default: '' })
+  business_phone?: string;
+
+  @Column({ unique: true, nullable: true })
+  intl_phone_format?: string;
+
+  @Column({ nullable: true })
+  iso_code: string;
 
   // Services: A vendor can have multiple services
   @OneToMany(() => Service, (service) => service.vendor, {
@@ -107,31 +100,24 @@ export class Vendor {
   @Column({ nullable: false })
   country: string;
 
-  @Column({ nullable: false })
-  region: string;
+  @OneToMany(() => VendorLocation, (location) => location.vendor, {
+    cascade: true,
+  })
+  locations: VendorLocation[];
 
-  @Column({ nullable: false })
-  city: string;
+  @OneToMany(() => VendorDocument, (doc) => doc.owner, {
+    cascade: true,
+  })
+  documents: VendorDocument[];
 
-  @Column({ nullable: false })
-  street: string;
-
-  @Column({ nullable: false, default: '' })
-  business_email: string;
-
-  @Column({ nullable: false, default: '' })
-  business_phone: string;
-
-  // Staffs: One-to-many relationship with operators
-  @OneToMany(() => Operator, (operator) => operator.vendor, { cascade: true })
-  @Exclude()
-  staffs: Operator[];
+  @Column({ default: false })
+  is_kyc_completed: boolean;
 
   @Column({ nullable: true })
   website?: string;
 
-  @Column({ type: 'json', nullable: true })
-  business_schedule?: any;
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  kyc_completed_at?: Date | null;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

@@ -9,6 +9,13 @@ import {
   IsString,
 } from 'class-validator';
 import { ReceiverI } from 'src/commons/interfaces/receiver.interface';
+import {
+  Addon,
+  Ingredient,
+  Nutrition,
+  ProdVariations,
+  Specification,
+} from 'src/entities/product.entity';
 import { DeliveryType } from 'src/enums/delivery.type.enum';
 import { OrderType } from 'src/enums/order.type.enum';
 import { PaymentMethod } from 'src/enums/payment-method.enum';
@@ -34,7 +41,7 @@ export class CreateOrderDTO {
 
   @IsOptional()
   @IsString()
-  vendorId?: string;
+  vendorLocationId?: string;
 
   @IsOptional()
   @IsString()
@@ -99,4 +106,23 @@ export class CreateOrderDTO {
   @IsOptional()
   @IsObject()
   receiver?: ReceiverI;
+
+  @IsOptional()
+  @IsArray()
+  variations?: ProdVariations[];
+
+  @IsOptional()
+  @IsArray()
+  specifications?: Specification[];
+
+  @IsOptional()
+  @IsArray()
+  addOns?: Addon[];
+
+  @IsOptional()
+  @IsArray()
+  ingredients?: Ingredient[];
+
+  @IsOptional()
+  nutrition?: Nutrition;
 }

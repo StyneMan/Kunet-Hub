@@ -2,8 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Delete,
   Get,
+  Param,
   Post,
   Put,
   Query,
@@ -23,6 +23,14 @@ import { UpdateVendorDTO } from './dtos/updatevendor.dto';
 import { AddCouponDTO } from './dtos/add.coupon.dto';
 import { UpdateCouponDTO } from './dtos/update.coupon.dto';
 import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
+import { NearbyVendorDTO } from './dtos/nearby.vendor.dto';
+import { VendorKYCDTO } from './dtos/vendor.kyc.dto';
+import {
+  AcceptOrderDTO,
+  RejectOrderDTO,
+} from 'src/riders/dtos/order.action.dto';
+import { AddVendorLocationDTO } from './dtos/add.vendor.location.dto';
+import { UpdateVendorLocationDTO } from './dtos/update.vendor.location.dto';
 
 @Controller('vendor')
 export class VendorsController {
@@ -35,6 +43,28 @@ export class VendorsController {
     @Query('limit') limit: number = 25,
   ) {
     const resp = await this.vendorService.findVendors(page, limit, type);
+
+    return resp;
+  }
+
+  @Get('list')
+  async vendorList() {
+    return await this.vendorService.vendorList();
+  }
+
+  @Post('nearby')
+  async nearestVendors(
+    @Query('type') type: VendorType,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Body() payload: NearbyVendorDTO,
+  ) {
+    const resp = await this.vendorService.findNearbyVendors(
+      page,
+      limit,
+      payload?.lat,
+      payload?.lng,
+    );
 
     return resp;
   }
@@ -90,11 +120,37 @@ export class VendorsController {
     }),
   )
   async updateVendor(@Req() req: any, @Body() body: UpdateVendorDTO) {
-    return await this.vendorService.updateInformation(
+    return await this.vendorService.updateVendor(
       req?.user?.sub,
       req?.params?.id,
       body,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('kyc/setup')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        // const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: ` ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async setupKYC(@Req() req: any, @Body() payload: VendorKYCDTO) {
+    return await this.vendorService.completeKYC(req?.user?.sub, payload);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -124,6 +180,100 @@ export class VendorsController {
       req?.user?.sub,
       req?.params?.id,
       body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('location/create')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async createVendorLocation(
+    @Req() req: any,
+    @Body() body: AddVendorLocationDTO,
+  ) {
+    return await this.vendorService.addVendorLocation(req?.user?.sub, body);
+  }
+
+  @Get('location/all')
+  async locations(
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.vendorService.findAllVendorLocations(page, limit);
+  }
+
+  @Get('locations')
+  async vendorLocations(
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 30,
+    @Query('type') type: VendorType,
+  ) {
+    return await this.vendorService.findVendorLocations(page, limit, type);
+  }
+
+  @Get(':id/locations')
+  async vendorBranches(
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 30,
+    @Param('id') id: string,
+  ) {
+    return await this.vendorService.findVendorBranches(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('location/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateLocation(@Req() req: any, @Body() body: UpdateVendorLocationDTO) {
+    return await this.vendorService.updateVendorLocation(
+      req?.user?.sub,
+      req?.params?.id,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('location/:id/delete')
+  async deleteLocation(@Req() req: any) {
+    return await this.vendorService.deleteVendorLocation(
+      req?.user?.sub,
+      req?.params?.id,
     );
   }
 
@@ -165,11 +315,70 @@ export class VendorsController {
   async vendorCategories(
     @Req() req: Request,
     @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
-    @Query('limit') limit: number = 25,
+    @Query('limit') limit: number = 30,
   ) {
     return await this.vendorService.findVendorCategories(
       page,
       limit,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('category/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateCategory(@Req() req: any, @Body() body: AddCategoryDTO) {
+    return await this.vendorService.updateCategory(
+      req?.user?.sub,
+      req?.params?.id,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('category/:id/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteCategory(@Req() req: any) {
+    return await this.vendorService.deleteCategory(
+      req?.user?.sub,
       req?.params?.id,
     );
   }
@@ -230,6 +439,35 @@ export class VendorsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Put('coupon/:id/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteCoupon(@Req() req: any) {
+    return await this.vendorService.deleteCoupon(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
   @Get(':id/coupons')
   async vendorCoupons(
     @Req() req: Request,
@@ -239,65 +477,6 @@ export class VendorsController {
     return await this.vendorService.findVendorCoupons(
       page,
       limit,
-      req?.params?.id,
-    );
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Put('category/:id/update')
-  @UsePipes(
-    new ValidationPipe({
-      exceptionFactory: (errors: ValidationError[]) => {
-        const validationErrors = errors.map((error) => ({
-          field: error.property,
-          errors: Object.values(error.constraints || {}),
-        }));
-
-        // Extract the first error message from the validation errors
-        const firstErrorField = validationErrors[0].field;
-        const firstErrorMessage = validationErrors[0].errors[0];
-
-        return new BadRequestException({
-          statusCode: 400,
-          message: `${firstErrorField}: ${firstErrorMessage}`,
-          errors: validationErrors,
-        });
-      },
-    }),
-  )
-  async updateCategory(@Req() req: any, @Body() body: AddCategoryDTO) {
-    return await this.vendorService.updateCategory(
-      req?.user?.sub,
-      req?.params?.id,
-      body,
-    );
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Delete('category/:id/delete')
-  @UsePipes(
-    new ValidationPipe({
-      exceptionFactory: (errors: ValidationError[]) => {
-        const validationErrors = errors.map((error) => ({
-          field: error.property,
-          errors: Object.values(error.constraints || {}),
-        }));
-
-        // Extract the first error message from the validation errors
-        const firstErrorField = validationErrors[0].field;
-        const firstErrorMessage = validationErrors[0].errors[0];
-
-        return new BadRequestException({
-          statusCode: 400,
-          message: `${firstErrorField}: ${firstErrorMessage}`,
-          errors: validationErrors,
-        });
-      },
-    }),
-  )
-  async deleteCategory(@Req() req: any) {
-    return await this.vendorService.deleteCategory(
-      req?.user?.sub,
       req?.params?.id,
     );
   }
@@ -337,6 +516,24 @@ export class VendorsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('branch/:id/transactions')
+  async branchTransactions(
+    @Req() req: Request,
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+    @Query('startDate') startDate?: Date,
+    @Query('endDate') endDate?: Date,
+  ) {
+    return await this.vendorService.findVendorLocationTransactions(
+      page,
+      limit,
+      req?.params?.id,
+      startDate,
+      endDate,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/staffs')
   async vendorStaffs(
     @Req() req: Request,
@@ -356,7 +553,7 @@ export class VendorsController {
     @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
     @Query('limit') limit: number = 25,
   ) {
-    return await this.vendorService.findAllDocuments(page, limit);
+    return await this.vendorService.findAllVendorDocuments(page, limit);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -383,5 +580,17 @@ export class VendorsController {
   )
   async setWalletPIN(@Body() payload: UpdateWalletPINDTO, @Req() req: any) {
     return this.vendorService.setWalletPin(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('order/accept')
+  async acceptOrder(@Body() payload: AcceptOrderDTO, @Req() req: any) {
+    return await this.vendorService.acceptOrder(req.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('order/reject')
+  async rejectOrder(@Body() payload: RejectOrderDTO, @Req() req: any) {
+    return await this.vendorService.rejectOrder(req.user?.sub, payload);
   }
 }

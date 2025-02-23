@@ -1,18 +1,10 @@
-import {
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsAlpha,
-  IsUrl,
-  IsArray,
-} from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsUrl } from 'class-validator';
 import { VendorStatus } from 'src/enums/vendor.status.enum';
 import { VendorType } from 'src/enums/vendor.type.enum';
 
 export class UpdateVendorDTO {
   @IsOptional()
   @IsString()
-  @IsAlpha()
   name?: string;
 
   @IsOptional()
@@ -37,28 +29,12 @@ export class UpdateVendorDTO {
   logo?: string;
 
   @IsOptional()
-  @IsArray()
-  staffs?: string[];
-
-  @IsOptional()
   @IsString()
   website?: string;
 
   @IsOptional()
   @IsString()
   country_code?: string;
-
-  @IsOptional()
-  @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @IsOptional()
-  @IsString()
-  street?: string;
 
   @IsOptional()
   zoneId?: string;

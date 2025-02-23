@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
+import { Addon, ProdVariations } from 'src/entities/product.entity';
 import SelectionItemI from 'src/interfaces/selection.item';
 
 export class CartItemDTO {
@@ -22,7 +23,15 @@ export class CartItemDTO {
 
   @IsOptional()
   @IsArray()
-  selections?: SelectionItemI[];
+  extras?: SelectionItemI[];
+
+  @IsOptional()
+  @IsArray()
+  addOns?: Addon[];
+
+  @IsOptional()
+  @IsArray()
+  variations?: ProdVariations[];
 
   @IsNotEmpty()
   @IsNumber()
@@ -39,7 +48,25 @@ export class AddToCartDTO {
 
   @IsNotEmpty()
   @IsString()
-  vendor_id: string;
+  branch_id: string;
+
+  @IsOptional()
+  @IsString()
+  vendor_note?: string;
+}
+
+export class ReorderToCartDTO {
+  @IsNotEmpty()
+  @IsNumber()
+  total_amount: number;
+
+  @IsNotEmpty()
+  @IsArray()
+  items: CartItemDTO[];
+
+  @IsNotEmpty()
+  @IsString()
+  branch_id: string;
 
   @IsOptional()
   @IsString()

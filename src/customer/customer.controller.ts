@@ -19,7 +19,7 @@ import { ValidationError } from 'class-validator';
 import { AddShippingAddressDTO } from './dtos/add.shipping.address.dto';
 import { UpdateShippingAddressDTO } from './dtos/update.shipping.address.dto';
 import { VendorType } from 'src/enums/vendor.type.enum';
-import { AddToCartDTO } from './dtos/addtocart.dto';
+import { AddToCartDTO, ReorderToCartDTO } from './dtos/addtocart.dto';
 import { Request } from 'express';
 import { UpdateCartDTO } from './dtos/updatecart.dto';
 import { ApplyCouponCodeDTO } from './dtos/apply.couon.code.dto';
@@ -179,7 +179,7 @@ export class CustomerController {
   @UseGuards(JwtAuthGuard)
   @Put('vendor/:id/favourite')
   async likeUnlike(@Req() req: any, @Param('id') id: string) {
-    return this.customerService.likeUnlikeVendor(req?.user?.sub, id);
+    return this.customerService.likeUnlikeVendorLocation(req?.user?.sub, id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -226,6 +226,32 @@ export class CustomerController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('cart/reorder')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async reorderToCart(@Body() payload: ReorderToCartDTO, @Req() req: any) {
+    return this.customerService.reorderToCart(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/carts')
   async customerCarts(
     @Param('id') id: string,
@@ -262,9 +288,15 @@ export class CustomerController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('cart/:id/clear')
+  async clearAllCartItems(@Param('id') id: string, @Req() req: any) {
+    return await this.customerService.removeAllCartItems(req?.user?.sub, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('cart/:id/delete')
-  async deleteCart(@Param('id') id: string) {
-    return await this.customerService.deleteCart(id);
+  async deleteCart(@Param('id') id: string, @Req() req: any) {
+    return await this.customerService.deleteCart(req?.user?.sub, id);
   }
 
   @UseGuards(JwtAuthGuard)

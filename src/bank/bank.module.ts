@@ -29,6 +29,8 @@ import { OrdersService } from 'src/orders/orders.service';
 import { CommissionAndFee } from 'src/entities/fee.entity';
 import { Cart } from 'src/entities/cart.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 @Module({
   imports: [
@@ -42,9 +44,11 @@ import { SystemTransactions } from 'src/entities/system.transactions.entity';
       Vendor,
       Customer,
       Operator,
+      DummyOrder,
       RiderReview,
       RiderWallet,
       VendorWallet,
+      VendorLocation,
       PaymentGateway,
       RiderTransactions,
       VendorTransactions,

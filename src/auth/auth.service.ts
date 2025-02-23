@@ -118,6 +118,14 @@ export class AuthService {
     return this.operatorService.validateLogin(payload);
   }
 
+  loginOperatorPhone(payload: LoginPhoneDTO) {
+    return this.operatorService.loginPhone(payload);
+  }
+
+  verifyOperatorPhoneLoginOTP(payload: VerifyLoginPhoneDTO) {
+    return this.operatorService.verifyPhoneLoginOTP(payload);
+  }
+
   sendPasswordResetEmailOperator(payload: SendOTPDTO) {
     return this.operatorService.sendPasswordResetEmail(payload?.email_address);
   }

@@ -73,6 +73,11 @@ import { ChatMessage } from './entities/chat.message.entity';
 import { ChatModule } from './chat/chat.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SystemTransactions } from './entities/system.transactions.entity';
+import { BannerModule } from './banner/banner.module';
+import { Banner } from './entities/banner.entity';
+import { WorkHour } from './entities/working.hour.entity';
+import { VendorLocation } from './entities/vendor.location.entity';
+import { DummyOrder } from './entities/dummy.order.entity';
 
 @Module({
   imports: [
@@ -106,6 +111,7 @@ import { SystemTransactions } from './entities/system.transactions.entity';
           Chat,
           Product,
           Order,
+          WorkHour,
           ChatMessage,
           PaymentEntity,
           AdminOTP,
@@ -121,6 +127,8 @@ import { SystemTransactions } from './entities/system.transactions.entity';
           Category,
           Cart,
           Legal,
+          Banner,
+          DummyOrder,
           CartItem,
           OperatorActivity,
           AdminActivity,
@@ -131,6 +139,7 @@ import { SystemTransactions } from './entities/system.transactions.entity';
           PackOption,
           SMSProviders,
           CustomerWallet,
+          VendorLocation,
           SystemTransactions,
           CustomerFavourites,
           CustomerTransactions,
@@ -192,6 +201,7 @@ import { SystemTransactions } from './entities/system.transactions.entity';
     SupportsModule,
     SocketModule,
     ChatModule,
+    BannerModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,10 +1,13 @@
 import {
   IsAlpha,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   IsUrl,
 } from 'class-validator';
+import { BikeType } from 'src/enums/bike.type.enum';
 
 export class CompleteRiderKYCDTO {
   @IsNotEmpty()
@@ -26,6 +29,14 @@ export class CompleteRiderKYCDTO {
   @IsNotEmpty()
   @IsString()
   zoneId: string;
+
+  @IsNotEmpty()
+  @IsEnum(BikeType)
+  bikeType: BikeType;
+
+  @IsOptional()
+  @IsString()
+  plateNumber?: string;
 
   @IsNotEmpty()
   @IsUrl()

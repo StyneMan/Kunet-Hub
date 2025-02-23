@@ -7,11 +7,12 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { OperatorType } from 'src/enums/operator.type.enum';
+import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 import { Vendor } from './vendor.entity';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { UserType } from 'src/enums/user.type.enum';
 import { Exclude } from 'class-transformer';
+import { VendorLocation } from './vendor.location.entity';
 
 @Entity({ name: 'operators' })
 export class Operator {
@@ -48,6 +49,9 @@ export class Operator {
   @Column({ type: 'enum', enum: OperatorType })
   operator_type: OperatorType;
 
+  @Column({ type: 'enum', enum: OperatorRole })
+  operator_role: OperatorRole;
+
   @Column({ unique: false, nullable: true })
   intl_phone_format: string;
 
@@ -63,9 +67,16 @@ export class Operator {
   @Column({ nullable: true })
   country_code: string;
 
-  @ManyToOne(() => Vendor, (vendor) => vendor.staffs)
+  @ManyToOne(() => Vendor, (vendor) => vendor)
   @Exclude()
   vendor: Vendor;
+
+  @ManyToOne(() => VendorLocation, (location) => location.staffs, {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
+  @Exclude()
+  vendor_location?: VendorLocation;
 
   @Column({ default: false })
   is_kyc_completed: boolean;
@@ -80,13 +91,13 @@ export class Operator {
   user_type?: UserType;
 
   @Column({ nullable: true })
-  street: string;
+  street?: string;
 
   @Column({ nullable: true })
-  state: string;
+  state?: string;
 
   @Column({ nullable: true })
-  city: string;
+  city?: string;
 
   @Column({ nullable: true })
   country: string;

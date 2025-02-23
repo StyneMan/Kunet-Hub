@@ -43,6 +43,7 @@ import { generateOrderNo } from 'src/utils/order_num_generator';
 import { Cart } from 'src/entities/cart.entity';
 import { orderConfirmationEmail } from 'src/utils/order_confirmation_mail';
 import { PaymentMethod } from 'src/enums/payment-method.enum';
+import { InitPaymentLinkDTO } from './dtos/init.payment.dto';
 
 @Injectable()
 export class BankService {
@@ -968,12 +969,63 @@ export class BankService {
     );
   }
 
-  async flutterwaveWebHook(data: any) {
-    return this.flutterwaveService.flutterwaveTopupWallet(data);
+  async initPayment(payload: InitPaymentLinkDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { is_default: true },
+    });
+
+    if (!gateway) {
+      throw new HttpException(
+        {
+          message: 'Default payment gateway not set!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (gateway.provider === PaymentGatewayType.FLUTTER_WAVE) {
+      const params: FlutterwavePaymentLinkDTO = {
+        amount: payload?.amount,
+        customer_id: payload?.customer_id,
+        email_address: payload?.email_address,
+        full_name: payload?.full_name,
+        phone_number: payload?.phone_number,
+        title: payload?.title,
+      };
+      return this.initFlutterwavePayment(params);
+    } else if (gateway.provider === PaymentGatewayType.PAYSTACK) {
+      const params: PaystackPaymentLinkDTO = {
+        amount: payload?.amount,
+        customer_id: payload?.customer_id,
+        email_address: payload?.email_address,
+        full_name: payload?.full_name,
+        title: payload?.title,
+      };
+      return this.initPaystackPayment(params);
+    }
   }
 
-  async flutterwaveCardWebHook(data: any) {
-    return this.flutterwaveService.flutterwaveCardPayHook(data);
+  async orderChargeCard(payload: PayCardOrderDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { is_default: true },
+    });
+
+    if (!gateway) {
+      throw new HttpException(
+        {
+          message: 'Default payment gateway not set!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (gateway.provider === PaymentGatewayType.FLUTTER_WAVE) {
+      return this.flutterwaveOrderChargeCard(payload);
+    } else if (gateway.provider === PaymentGatewayType.PAYSTACK) {
+      return this.paystackOrderChargeCard(payload);
+    }
   }
 
   async flutterwaveOrderChargeCard(payload: PayCardOrderDTO) {
@@ -991,6 +1043,52 @@ export class BankService {
       gateway?.secret_key,
       payload,
     );
+  }
+
+  async paystackOrderChargeCard(payload: PayCardOrderDTO) {
+    const gateway = await this.gatewayRepository.findOne({
+      where: { provider: PaymentGatewayType.PAYSTACK },
+    });
+
+    if (!gateway) {
+      throw new HttpException('Paystack gateway missing', HttpStatus.FORBIDDEN);
+    }
+    return this.paystackService.paystackPayWithCard(
+      gateway?.secret_key,
+      payload,
+    );
+  }
+
+  async flutterwaveWebHook(data: any) {
+    return this.flutterwaveService.flutterwaveTopupWallet(data);
+  }
+
+  async paystackWebHook(data: any) {
+    // First look for this transaction
+    const transaction = await this.customerTransactionRepository.findOne({
+      where: { tx_ref: `FBW-${data?.reference}` },
+      relations: ['customer'],
+    });
+
+    if (transaction) {
+      // It is wallet topup
+      console.log('FOUND TRANSACTION :: ', transaction);
+      transaction.completed_at = new Date();
+      await this.customerTransactionRepository.save(transaction);
+
+      // Now fund wallet
+      return this.paystackService.paystackTopupWallet(data, transaction);
+    } else {
+      return this.paystackCardWebHook(data);
+    }
+  }
+
+  async flutterwaveCardWebHook(data: any) {
+    return this.flutterwaveService.flutterwaveCardPayHook(data);
+  }
+
+  async paystackCardWebHook(data: any) {
+    return this.paystackService.paystackCardPayHook(data);
   }
 
   async orderWithWallet(email_address: string, payload: PayWalletOrderDTO) {
@@ -1066,7 +1164,7 @@ export class BankService {
         const cart = await this.cartRepository.findOne({
           where: {
             customer: { id: customer?.id },
-            vendor: { id: payload?.orderInfo?.vendorId },
+            vendor_location: { id: payload?.orderInfo?.vendorLocationId },
           },
         });
 
@@ -1080,7 +1178,7 @@ export class BankService {
             UserType.CUSTOMER,
             'refresh-cart',
             {
-              message: 'HELLO TESTING SOCKET.IO !!!',
+              message: ' ',
             },
           );
         }

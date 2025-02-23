@@ -51,6 +51,9 @@ import { OrdersService } from 'src/orders/orders.service';
 import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
+import { Banner } from 'src/entities/banner.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 @Module({
   imports: [
@@ -69,16 +72,19 @@ import { VendorWallet } from 'src/entities/vendor.wallet.entity';
       Zone,
       Order,
       Vendor,
+      Banner,
       Coupon,
       Complaint,
       CommissionAndFee,
       CartItem,
+      DummyOrder,
       PackOption,
       RiderWallet,
       RiderReview,
       RiderDocument,
       SMSProviders,
       VendorWallet,
+      VendorLocation,
       CustomerWallet,
       ShippingAddress,
       RiderTransactions,

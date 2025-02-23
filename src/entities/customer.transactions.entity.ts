@@ -37,6 +37,9 @@ export class CustomerTransactions {
   @JoinColumn()
   customer: Customer;
 
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  completed_at?: Date | null;
+
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

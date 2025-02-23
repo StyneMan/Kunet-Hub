@@ -4,3 +4,8 @@ export enum VendorStatus {
   DELETED = 'deleted',
   PENDING = 'pending',
 }
+
+export enum VendorLocationStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+}

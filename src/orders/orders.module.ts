@@ -15,6 +15,8 @@ import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 @Module({
   imports: [
@@ -25,8 +27,10 @@ import { VendorWallet } from 'src/entities/vendor.wallet.entity';
       Operator,
       Rider,
       Product,
+      DummyOrder,
       RiderWallet,
       VendorWallet,
+      VendorLocation,
       CommissionAndFee,
       RiderTransactions,
       VendorTransactions,

@@ -3,7 +3,7 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 export class CalculateDeliveryCostDTO {
   @IsNotEmpty()
   @IsString()
-  vendorId: string;
+  vendorLocationId: string;
 
   @IsNotEmpty()
   @IsNumber()

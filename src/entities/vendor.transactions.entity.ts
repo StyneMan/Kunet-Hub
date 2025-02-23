@@ -7,8 +7,9 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Vendor } from './vendor.entity';
 import { TransactionType } from 'src/enums/transaction.type.enum';
+import { VendorLocation } from './vendor.location.entity';
+import { Vendor } from './vendor.entity';
 
 @Entity({ name: 'vendor_transactions' })
 export class VendorTransactions {
@@ -32,6 +33,10 @@ export class VendorTransactions {
 
   @Column({ nullable: false })
   summary: string;
+
+  @ManyToOne(() => VendorLocation, { nullable: false })
+  @JoinColumn()
+  vendor_location: VendorLocation;
 
   @ManyToOne(() => Vendor, { nullable: false })
   @JoinColumn()

@@ -8,7 +8,7 @@ import generateRandomPassword from 'src/utils/password_generator';
 import { encodePassword } from 'src/utils/bcrypt';
 import { Admin } from 'src/entities/admin.entity';
 import { Operator } from 'src/entities/operator.entity';
-import { OperatorType } from 'src/enums/operator.type.enum';
+import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 import { userOnboardingEmailContent } from 'src/utils/email';
 import { AddCategoryDTO } from './dtos/addcategory.dto';
 import { Category } from 'src/entities/category.entity';
@@ -31,6 +31,26 @@ import calculateDistance from 'src/commons/calculator/distance.calc';
 import { SocketGateway } from 'src/socket/socket.gateway';
 import * as bcrypt from 'bcrypt';
 import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
+import { VendorKYCDTO } from './dtos/vendor.kyc.dto';
+import { WorkHour } from 'src/entities/working.hour.entity';
+import { OrderStatus } from 'src/enums/order.status.enum';
+import { OrderType } from 'src/enums/order.type.enum';
+import { TransactionType } from 'src/enums/transaction.type.enum';
+import {
+  AcceptOrderDTO,
+  RejectOrderDTO,
+} from 'src/riders/dtos/order.action.dto';
+import generateRandomCoupon from 'src/utils/coupon_generator';
+import { Order } from 'src/entities/order.entity';
+import { SmsService } from 'src/sms/sms.service';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { CommissionAndFee } from 'src/entities/fee.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { VendorDocument } from 'src/entities/vendor.document.entity';
+import { AddVendorLocationDTO } from './dtos/add.vendor.location.dto';
+import { UpdateVendorLocationDTO } from './dtos/update.vendor.location.dto';
+import { CustomerWallet } from 'src/entities/customer.wallet.entity';
+import { SystemTransactions } from 'src/entities/system.transactions.entity';
 
 @Injectable()
 export class VendorsService {
@@ -42,18 +62,35 @@ export class VendorsService {
     @InjectRepository(Operator)
     private readonly operatorRepository: Repository<Operator>,
     @InjectRepository(OperatorDocument)
-    private readonly documentRepository: Repository<OperatorDocument>,
+    private readonly operatorDocRepository: Repository<OperatorDocument>,
+    @InjectRepository(VendorDocument)
+    private readonly vendorDocRepository: Repository<VendorDocument>,
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
     @InjectRepository(Coupon)
     private readonly couponRepository: Repository<Coupon>,
     @InjectRepository(VendorWallet)
     private readonly walletRepository: Repository<VendorWallet>,
+    @InjectRepository(CustomerWallet)
+    private readonly customerWalletRepository: Repository<CustomerWallet>,
     @InjectRepository(VendorTransactions)
     private readonly transactionRepository: Repository<VendorTransactions>,
+    @InjectRepository(SystemTransactions)
+    private readonly systemTransactionRepository: Repository<SystemTransactions>,
+    @InjectRepository(VendorLocation)
+    private readonly vendorLocationRepository: Repository<VendorLocation>,
+    @InjectRepository(WorkHour)
+    private readonly workHourRepository: Repository<WorkHour>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
     private mailerService: MailerService,
     private zoneService: ZonesService,
     private socketGateway: SocketGateway,
+    private smsService: SmsService,
+    @InjectRepository(SMSProviders)
+    private readonly smsRepository: Repository<SMSProviders>,
+    @InjectRepository(CommissionAndFee)
+    private commissionAndFeeRepository: Repository<CommissionAndFee>,
   ) {}
 
   async findVendors(page: number, limit: number, vendor_type?: VendorType) {
@@ -100,8 +137,8 @@ export class VendorsService {
         this.vendorRepository
           .createQueryBuilder('vendor') // Alias for the Admin table
           .leftJoinAndSelect('vendor.zone', 'zone') // Join the related admin table
-          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .leftJoinAndSelect('vendor.owner', 'owner') // Join the related admin table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .select([
             'vendor',
             'owner.first_name',
@@ -139,6 +176,116 @@ export class VendorsService {
     }
   }
 
+  async vendorList() {
+    const data = await this.vendorLocationRepository
+      .createQueryBuilder('location')
+      .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+      .select([
+        'location.id',
+        'location.branch_name',
+        'vendor.id',
+        'vendor.name',
+        'vendor.logo',
+        'vendor.cover',
+      ])
+      .where('vendor.status != :status', { status: VendorStatus.DELETED })
+      .getRawMany(); // Get raw data without entity transformation
+
+    return data;
+  }
+
+  async findVendorLocations(
+    page: number,
+    limit: number,
+    vendor_type?: VendorType,
+  ) {
+    if (vendor_type) {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+      // Get paginated data and total count
+      const [data, total] = await Promise.all([
+        this.vendorLocationRepository
+          .createQueryBuilder('location') // Alias for the table
+          .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+          .leftJoinAndSelect('vendor.owner', 'owner')
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .where('vendor.vendor_type = :vendor_type', { vendor_type }) // Filter by vendor ID
+          .andWhere('vendor.status != :status', {
+            status: VendorStatus.DELETED,
+          })
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records
+          .getMany(), // Execute query to fetch data
+
+        this.vendorLocationRepository
+          .createQueryBuilder('location') // Alias for the table
+          .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+          .leftJoin('vendor.owner', 'owner') // Join the related vendor table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .where('vendor.vendor_type = :vendor_type', { vendor_type }) // Filter by vendor ID
+          .andWhere('vendor.status != :status', {
+            status: VendorStatus.DELETED,
+          })
+          .getCount(), // Count total records for pagination
+      ]);
+
+      console.log('VENDOR LOCATS ::: ', data);
+
+      // Return the paginated response
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    } else {
+      const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+      const [data, total] = await Promise.all([
+        this.vendorLocationRepository
+          .createQueryBuilder('location') // Alias for the Admin table
+          .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+          .leftJoinAndSelect('vendor.zone', 'zone') // Join the related admin table
+          .leftJoinAndSelect('vendor.owner', 'owner') // Join the related admin table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          // .select([
+          //   'vendor',
+          //   'owner.first_name',
+          //   'owner.last_name',
+          //   'owner.email_address',
+          //   'owner.phone_number',
+          //   'owner.photo_url',
+          //   'owner.operator_type',
+          //   'owner.identity_type',
+          //   'owner.identity_number',
+          //   'owner.last_login',
+          // ])
+          .where('vendor.status != :status', { status: VendorStatus.DELETED })
+          .skip(skip) // Skip the records
+          .take(limit) // Limit the number of records returned
+          .getMany(), // Execute query to fetch data
+
+        this.vendorLocationRepository
+          .createQueryBuilder('location') // Alias for the Admin table
+          .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+          .leftJoin('vendor.owner', 'owner') // Join the related vendor table
+          .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+          .andWhere('vendor.status != :status', {
+            status: VendorStatus.DELETED,
+          })
+          .getCount(), // Count total records for pagination
+      ]);
+
+      return {
+        data,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        perPage: limit,
+      };
+    }
+  }
+
   async findNearbyVendors(
     page: number,
     limit: number,
@@ -146,18 +293,19 @@ export class VendorsService {
     lng: string,
   ) {
     // Fetch vendors within a 10km radius
-    const nearbyVendors = await this.vendorRepository.find({
+    const nearbyVendors = await this.vendorLocationRepository.find({
       where: {
-        status: VendorStatus.ACTIVE,
+        vendor: { status: VendorStatus.ACTIVE },
       },
+      relations: ['vendor'],
     });
 
     const vendorsWithDistance = await Promise.all(
       nearbyVendors.map(async (vendor) => {
         const distance = await calculateDistance(
           {
-            lat: parseInt(lat, 10),
-            lng: parseInt(lng, 10),
+            lat: parseFloat(`${lat}`),
+            lng: parseFloat(`${lng}`),
           },
           {
             lat: parseFloat(`${vendor.lat}`),
@@ -169,12 +317,13 @@ export class VendorsService {
     );
 
     // First do some Google Map operations
-    console.log('PAGE ::: ', page);
-    console.log('LIMIT ::: ', limit);
+    console.log('LAT ::: ', lat);
+    console.log('LNG ::: ', lng);
+    // console.log('VWD ::: ', vendorsWithDistance);
 
     // Sort riders by distance and daily orders
     const sortedVendors = vendorsWithDistance
-      .filter((vendor) => vendor.distance <= 10) // Vendors within 10km
+      .filter((vendor) => vendor.distance <= 100) // Vendors within 50km
       .sort((a, b) => a.distance - b.distance);
 
     if (sortedVendors.length === 0) {
@@ -184,6 +333,8 @@ export class VendorsService {
       };
     }
 
+    // console.log('NEARESTS 70KM ::: ', sortedVendors);
+
     return {
       data: sortedVendors,
     };
@@ -192,18 +343,12 @@ export class VendorsService {
   async createVendor(
     email_address: string,
     {
-      lat,
-      lng,
-      city,
-      country,
       country_code,
-      logo,
       name,
       regNo,
-      state: region,
-      street,
       type,
       website,
+      country,
       email_address: ownerEmail,
       first_name,
       intl_phone_format,
@@ -215,8 +360,6 @@ export class VendorsService {
       back_view,
       biz_cert,
       zoneId,
-      business_phone,
-      business_email,
     }: CreateVendorDTO,
   ) {
     const adm = await this.adminRepository.findOne({
@@ -293,6 +436,7 @@ export class VendorsService {
         identity_number: identity_number,
         user_type: UserType.OPERATOR,
         operator_type: OperatorType.OWNER,
+        operator_role: OperatorRole.SUPER,
         intl_phone_format: intl_phone_format,
         phone_number: phone_number,
         country_code: country_code,
@@ -304,19 +448,11 @@ export class VendorsService {
       const savedowner = await this.operatorRepository.save(owner);
 
       const vendor = this.vendorRepository.create({
-        city: city,
-        country: country,
         name: name,
         regNo: regNo,
-        region: region,
         vendor_type: type,
-        logo: logo,
-        street: street,
         website: website,
-        lat: parseFloat(lat),
-        lng: parseFloat(lng),
-        business_phone: business_phone,
-        business_email: business_email,
+        country: country,
         certificate: biz_cert,
         created_at: new Date(),
         updated_at: new Date(),
@@ -324,10 +460,9 @@ export class VendorsService {
 
       vendor.owner = savedowner;
       vendor.zone = zone;
-      vendor.staffs = [savedowner];
       const savedVendor = await this.vendorRepository.save(vendor);
 
-      // Now dd vendor to operator
+      // Now add vendor to operator
       savedowner.vendor = savedVendor;
       await this.operatorRepository.save(savedowner);
 
@@ -342,15 +477,26 @@ export class VendorsService {
       await this.walletRepository.save(wallet);
 
       //Now save owner documents here
-      const doc = this.documentRepository.create({
+      const vendorDoc = this.vendorDocRepository.create({
         name: `${first_name} ${last_name}\'s ${identity_type}`,
         front_view: front_view,
         back_view: back_view,
         created_at: new Date(),
         updated_at: new Date(),
       });
-      doc.owner = savedowner;
-      await this.documentRepository.save(doc);
+      vendorDoc.owner = savedVendor;
+      await this.vendorDocRepository.save(vendorDoc);
+
+      //Now save owner documents here
+      const operatorDoc = this.operatorDocRepository.create({
+        name: `${first_name} ${last_name}\'s ${identity_type}`,
+        front_view: front_view,
+        back_view: back_view,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      operatorDoc.owner = savedowner;
+      await this.operatorDocRepository.save(operatorDoc);
 
       // Now send email to operator with credentials  here
       await this.mailerService.sendMail({
@@ -426,6 +572,60 @@ export class VendorsService {
       this.categoryRepository
         .createQueryBuilder('category') // Alias for the table
         .leftJoin('category.vendor', 'vendor') // Join the related vendor table
+        .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async findVendorBranches(page: number, limit: number, vendorID: string) {
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: vendorID },
+    });
+
+    if (!vendor) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          message: 'Vendor not found',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.vendorLocationRepository
+        .createQueryBuilder('location') // Alias for the Admin table
+        .leftJoinAndSelect('location.staffs', 'staffs') // Join the related product table
+        .select([
+          'location',
+          'staffs.first_name',
+          'staffs.last_name',
+          'staffs.email_address',
+          'staffs.phone_number',
+          'staffs.photo_url',
+          'staffs.operator_type',
+          'staffs.operator_role',
+        ]) // Select only the required fields
+        .leftJoinAndSelect('location.vendor', 'vendor') // Join the related product table
+        .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+
+      this.vendorLocationRepository
+        .createQueryBuilder('location') // Alias for the table
+        .leftJoin('location.staffs', 'staffs') // Join the related vendor table
+        .leftJoin('location.vendor', 'vendor') // Join the related vendor table
         .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
         .getCount(), // Count total records for pagination
     ]);
@@ -646,7 +846,7 @@ export class VendorsService {
     };
   }
 
-  async updateInformation(
+  async updateVendor(
     email_address: string,
     vendorId: string,
     payload: UpdateVendorDTO,
@@ -704,8 +904,8 @@ export class VendorsService {
     if (payload?.zoneId) {
       //First locate zone
       const zone = await this.zoneService.findZoneById(payload?.zoneId);
-      const { zoneId, staffs, ...rest } = payload;
-      console.log('IGNORED :: ', zoneId, staffs);
+      const { zoneId, ...rest } = payload;
+      console.log('IGNORED :: ', zoneId);
 
       const ven = this.vendorRepository.create({
         ...vndr,
@@ -719,8 +919,8 @@ export class VendorsService {
         data: updateVendor,
       };
     } else {
-      const { zoneId, staffs, ...elim } = payload;
-      console.log('Zone .::: ', zoneId, staffs);
+      const { zoneId, ...elim } = payload;
+      console.log('Zone .::: ', zoneId);
 
       // Merge the payload into the existing product object
       const uvnd = this.vendorRepository.create({
@@ -736,7 +936,7 @@ export class VendorsService {
     }
   }
 
-  async updateVendor(
+  async adminUpdateVendor(
     email_address: string,
     vendorId: string,
     payload: UpdateVendorDTO,
@@ -782,8 +982,8 @@ export class VendorsService {
     if (payload?.zoneId) {
       //First locate zone
       const zone = await this.zoneService.findZoneById(payload?.zoneId);
-      const { zoneId, staffs, ...rest } = payload;
-      console.log('IGNORED :: ', zoneId, staffs);
+      const { zoneId, ...rest } = payload;
+      console.log('IGNORED :: ', zoneId);
 
       const ven = this.vendorRepository.create({
         ...vndr,
@@ -797,8 +997,8 @@ export class VendorsService {
         data: updateVendor,
       };
     } else {
-      const { zoneId, staffs, ...elim } = payload;
-      console.log('Zone .::: ', zoneId, staffs);
+      const { zoneId, ...elim } = payload;
+      console.log('Zone .::: ', zoneId);
 
       // Merge the payload into the existing product object
       const uvnd = this.vendorRepository.create({
@@ -812,6 +1012,101 @@ export class VendorsService {
         data: updateVendor,
       };
     }
+  }
+
+  async completeKYC(email_address: string, payload: VendorKYCDTO) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException('Operator not found', HttpStatus.NOT_FOUND);
+    }
+
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: operator?.vendor?.id },
+    });
+
+    if (!vendor) {
+      throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
+    }
+
+    // Now complete KYC
+    vendor.cover = payload.cover;
+    vendor.about = payload?.about;
+    vendor.is_kyc_completed = true;
+    vendor.kyc_completed_at = new Date();
+    vendor.updated_at = new Date();
+
+    await this.vendorRepository.save(vendor);
+
+    // Now add business schedule here
+    const workHour = await this.workHourRepository.findOne({
+      where: { vendor: { id: vendor?.id } },
+    });
+
+    if (workHour) {
+      // Update here instead
+      workHour.mon_open =
+        payload?.business_schedule.mon_open ?? workHour.mon_open;
+      workHour.mon_close =
+        payload?.business_schedule.mon_close ?? workHour.mon_close;
+      workHour.tue_open =
+        payload?.business_schedule.tue_open ?? workHour.tue_open;
+      workHour.tue_close =
+        payload?.business_schedule.tue_close ?? workHour.tue_close;
+      workHour.wed_open =
+        payload?.business_schedule.wed_open ?? workHour.wed_open;
+      workHour.wed_close =
+        payload?.business_schedule.wed_close ?? workHour.wed_close;
+      workHour.thu_open =
+        payload?.business_schedule.thu_open ?? workHour.thu_open;
+      workHour.thu_close =
+        payload?.business_schedule.thu_close ?? workHour.thu_close;
+      workHour.fri_open =
+        payload?.business_schedule.fri_open ?? workHour.fri_open;
+      workHour.fri_close =
+        payload?.business_schedule.fri_close ?? workHour.fri_close;
+      workHour.sat_open =
+        payload?.business_schedule.sat_open ?? workHour.sat_open;
+      workHour.sat_close =
+        payload?.business_schedule.sat_close ?? workHour.sat_close;
+      workHour.sun_open =
+        payload?.business_schedule.sun_open ?? workHour.sun_open;
+      workHour.sun_close =
+        payload?.business_schedule.sun_close ?? workHour.sun_close;
+      workHour.updated_at = new Date();
+
+      await this.workHourRepository.save(workHour);
+    } else {
+      const newWorkHour = this.workHourRepository.create({
+        mon_open: payload?.business_schedule.mon_open,
+        mon_close: payload?.business_schedule.mon_close,
+        tue_open: payload?.business_schedule.tue_open,
+        tue_close: payload?.business_schedule.tue_close,
+        wed_open: payload?.business_schedule.wed_open,
+        wed_close: payload?.business_schedule.wed_close,
+        thu_open: payload?.business_schedule.thu_open,
+        thu_close: payload?.business_schedule.thu_close,
+        fri_open: payload?.business_schedule.fri_open,
+        fri_close: payload?.business_schedule.fri_close,
+        sat_open: payload?.business_schedule.sat_open,
+        sat_close: payload?.business_schedule.sat_close,
+        sun_open: payload?.business_schedule.sun_open,
+        sun_close: payload?.business_schedule.sun_close,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      newWorkHour.vendor = vendor;
+      await this.workHourRepository.save(newWorkHour);
+    }
+
+    return {
+      message: 'KYC completed successfully',
+      user: operator,
+    };
   }
 
   async topupWallet(walletID: string, { amount, vendorId }: TopupWalletDTO) {
@@ -933,7 +1228,9 @@ export class VendorsService {
     // Create the base query builder
     const queryBuilder = this.transactionRepository
       .createQueryBuilder('transaction')
-      .leftJoinAndSelect('transaction.vendor', 'vendor');
+      .leftJoinAndSelect('transaction.vendor_location', 'vendor_location')
+      .leftJoinAndSelect('transaction.vendor', 'vendor')
+      .leftJoinAndSelect('vendor.owner', 'owner');
 
     // Apply date filter if both startDate and endDate are provided
     if (startDate && endDate) {
@@ -1025,6 +1322,70 @@ export class VendorsService {
     };
   }
 
+  async findVendorLocationTransactions(
+    page: number,
+    limit: number,
+    locationID: string,
+    startDate?: Date,
+    endDate?: Date,
+  ) {
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: locationID },
+    });
+
+    if (!vendorLocation) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          message: 'Vendor location not found',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    // Create the base query builder
+    const queryBuilder = this.transactionRepository
+      .createQueryBuilder('transaction')
+      .leftJoinAndSelect('transaction.vendor', 'vendor')
+      .leftJoinAndSelect('transaction.vendor_location', 'vendor_location')
+      .where('vendor_location.id = :locationID', { locationID });
+
+    // Apply date filter if both startDate and endDate are provided
+    if (startDate && endDate) {
+      queryBuilder.andWhere(
+        'transaction.created_at BETWEEN :startDate AND :endDate',
+        {
+          startDate,
+          endDate,
+        },
+      );
+    }
+
+    const [data, total] = await Promise.all([
+      queryBuilder
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+
+      this.transactionRepository
+        .createQueryBuilder('transaction') // Alias for the table
+        .leftJoin('transaction.vendor', 'vendor') // Join the related vendor table
+        .leftJoin('transaction.vendor_location', 'vendor_location') // Join the related vendor table
+        .where('vendor_location.id = :locationID', { locationID }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
   async findVendorStaffs(page: number, limit: number, vendorID: string) {
     const vendor = await this.vendorRepository.findOne({
       where: { id: vendorID },
@@ -1045,6 +1406,7 @@ export class VendorsService {
     const [data, total] = await Promise.all([
       this.operatorRepository
         .createQueryBuilder('operator')
+        .leftJoinAndSelect('operator.vendor_location', 'vendor_location')
         .leftJoinAndSelect('operator.vendor', 'vendor')
         .where('vendor.id = :vendorID', { vendorID })
         .skip(skip) // Skip the records
@@ -1053,6 +1415,7 @@ export class VendorsService {
 
       this.operatorRepository
         .createQueryBuilder('operator') // Alias for the table
+        .leftJoin('operator.vendor_location', 'vendor_location') // Join the related vendor table
         .leftJoin('operator.vendor', 'vendor') // Join the related vendor table
         .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
         .getCount(), // Count total records for pagination
@@ -1067,17 +1430,342 @@ export class VendorsService {
     };
   }
 
-  async findAllDocuments(page: number, limit: number) {
+  async addVendorLocation(
+    email_address: string,
+    payload: AddVendorLocationDTO,
+  ) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Vendor operator not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (operator.operator_type !== OperatorType.OWNER) {
+      throw new HttpException(
+        {
+          message: 'You are strictly forbidden!!',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    console.log('OPERATOR INFO ::: ', operator);
+
+    if (operator?.vendor?.id !== payload?.vendorId) {
+      throw new HttpException(
+        {
+          message: 'Unknown vendor operator',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const vndr = await this.vendorRepository.findOne({
+      where: { id: payload?.vendorId },
+    });
+
+    if (!vndr) {
+      throw new HttpException(
+        {
+          message: 'No vendor record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { branch_name: payload?.branch_name, vendor: { id: vndr.id } },
+    });
+
+    if (vendorLocation) {
+      throw new HttpException(
+        'Vendor branch name already added!',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const vendorLocationPhone = await this.vendorLocationRepository.findOne({
+      where: {
+        intl_phone_format: payload?.intl_phone_format,
+        vendor: { id: vndr.id },
+      },
+    });
+
+    if (vendorLocationPhone) {
+      throw new HttpException(
+        'You have used phone number in another location!',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // Now create coupon
+    // const uniqueCode = generateRandomCoupon(8, vndr.name.toUpperCase());
+    const newVendorLocation = this.vendorLocationRepository.create({
+      branch_name: payload?.branch_name,
+      city: payload?.city,
+      region: payload?.region,
+      street: payload.street,
+      business_email: payload?.email_address,
+      business_phone: payload?.natl_phone_format,
+      intl_phone_format: payload?.intl_phone_format,
+      lat: payload?.latitude,
+      lng: payload?.longitude,
+      iso_code: payload?.iso_code,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    newVendorLocation.vendor = vndr;
+    // newVendorLocation.staffs = [operator];
+
+    const savedLocation =
+      await this.vendorLocationRepository.save(newVendorLocation);
+
+    this.socketGateway.sendVendorEvent(vndr?.id, 'refresh-locations', {
+      data: null,
+    });
+
+    return {
+      message: 'Business location added successfully',
+      data: savedLocation,
+    };
+  }
+
+  async updateVendorLocation(
+    email_address: string,
+    locationID: string,
+    payload: UpdateVendorLocationDTO,
+  ) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Vendor operator not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (operator.operator_type !== OperatorType.OWNER) {
+      throw new HttpException(
+        {
+          message: 'You are strictly forbidden!!',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (operator?.vendor?.id !== payload?.vendorId) {
+      throw new HttpException(
+        {
+          message: 'Unknown vendor operator',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const vndr = await this.vendorRepository.findOne({
+      where: { id: payload?.vendorId },
+    });
+
+    if (!vndr) {
+      throw new HttpException(
+        {
+          message: 'No vendor record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now update coupon
+    const loc = await this.vendorLocationRepository.findOne({
+      where: { id: locationID, vendor: { id: payload?.vendorId } },
+    });
+
+    if (!loc) {
+      throw new HttpException(
+        {
+          message: 'No matching vendor location found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    loc.branch_name = payload?.branch_name ?? loc.branch_name;
+    loc.business_email = payload?.email_address ?? loc.business_email;
+    loc.business_phone = payload?.natl_phone_format ?? loc.business_phone;
+    loc.intl_phone_format = payload?.intl_phone_format ?? loc.intl_phone_format;
+    loc.city = payload?.city ?? loc.city;
+    loc.region = payload?.region ?? loc.region;
+    loc.street = payload?.street ?? loc.street;
+    loc.lat = payload?.latitude ?? loc.lat;
+    loc.lng = payload?.longitude ?? loc.lng;
+    loc.updated_at = new Date();
+
+    const updatedLocation = await this.vendorLocationRepository.save(loc);
+    this.socketGateway.sendEvent(
+      operator?.id,
+      UserType.OPERATOR,
+      'refresh-locations',
+      {
+        data: null,
+      },
+    );
+
+    this.socketGateway.sendVendorEvent(vndr?.id, 'refresh-locations', {
+      data: null,
+    });
+
+    return {
+      message: 'Vendor location updated successfully',
+      data: updatedLocation,
+    };
+  }
+
+  async findAllVendorLocations(page: number, limit: number) {
     const skip = (page - 1) * limit; // Calculate the number of records to skip
 
     const [data, total] = await Promise.all([
-      this.documentRepository
+      this.vendorLocationRepository
+        .createQueryBuilder('location') // Alias for the Admin table
+        .leftJoinAndSelect('location.vendor', 'vendor') // Join the related admin table
+        .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
+        .leftJoinAndSelect('vendor.owner', 'owner') // Join the related admin table
+        .select([
+          'vendor',
+          'owner.first_name',
+          'owner.last_name',
+          'owner.email_address',
+          'owner.phone_number',
+          'owner.photo_url',
+        ])
+        // .where('vendor.status != :status', { status: VendorStatus.DELETED })
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+      this.vendorLocationRepository.count(), // Count total documents for calculating total pages
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async deleteVendorLocation(operatorEmail: string, couponId: string) {
+    const coupon = await this.couponRepository.findOne({
+      where: { id: couponId },
+      relations: ['vendor'],
+    });
+
+    if (!coupon) {
+      throw new HttpException(
+        {
+          message: 'Coupon not found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: operatorEmail },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'No operator record found!',
+          error: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (operator?.operator_type !== OperatorType.OWNER) {
+      throw new HttpException(
+        {
+          message: 'Operation not allowed',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // Now check if this vendor owns this category;
+    if (operator?.vendor?.id !== coupon?.vendor?.id) {
+      throw new HttpException(
+        {
+          message: 'Operation not allowed',
+          error: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    await this.couponRepository.delete({ id: couponId });
+    return {
+      message: 'Coupon deleted successfully',
+    };
+  }
+
+  async findAllVendorDocuments(page: number, limit: number) {
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.vendorDocRepository
         .createQueryBuilder('documentRepo') // Alias for the Admin table
         .leftJoinAndSelect('documentRepo.owner', 'owner') // Join the related product table
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
-      this.documentRepository.count(), // Count total documents for calculating total pages
+      this.vendorDocRepository.count(), // Count total documents for calculating total pages
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async findAllOperatorDocuments(page: number, limit: number) {
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.vendorDocRepository
+        .createQueryBuilder('documentRepo') // Alias for the Admin table
+        .leftJoinAndSelect('documentRepo.owner', 'owner') // Join the related product table
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+      this.vendorDocRepository.count(), // Count total documents for calculating total pages
     ]);
 
     return {
@@ -1151,6 +1839,10 @@ export class VendorsService {
       discount: payload.discount,
       discount_type: payload?.discountType,
       expires_at: payload?.expires_at,
+      coupon_status:
+        payload?.is_active === true
+          ? CouponStatus.ACTIVE
+          : CouponStatus.INACTIVE,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -1172,6 +1864,7 @@ export class VendorsService {
   ) {
     const operator = await this.operatorRepository.findOne({
       where: { email_address: email_address },
+      relations: ['vendor'],
     });
 
     if (!operator) {
@@ -1230,6 +1923,15 @@ export class VendorsService {
     coupon.updated_at = new Date();
 
     const updatedCoupon = await this.couponRepository.save(coupon);
+    this.socketGateway.sendEvent(
+      operator?.id,
+      UserType.OPERATOR,
+      'refresh-coupons',
+      {
+        data: null,
+      },
+    );
+
     this.socketGateway.sendVendorEvent(vndr?.id, 'refresh-coupons', {
       data: null,
     });
@@ -1479,6 +2181,269 @@ export class VendorsService {
       await this.vendorRepository.save(vendor);
       return {
         message: 'Wallet pin set successfully',
+      };
+    }
+  }
+
+  async acceptOrder(email_address: string, payload: AcceptOrderDTO) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor', 'vendor_location'],
+    });
+
+    if (!operator) {
+      throw new HttpException('Operator not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (!operator.is_email_verified || !operator.is_kyc_completed) {
+      throw new HttpException(
+        'You must complete your KYC to accept orders',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const order = await this.orderRepository.findOne({
+      where: { id: payload?.orderId },
+      relations: ['vendor'],
+    });
+
+    if (!order) {
+      throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (order.order_type !== OrderType.PARCEL_ORDER) {
+      const vendor = await this.vendorRepository.findOne({
+        where: { id: operator.vendor.id },
+      });
+
+      if (!vendor) {
+        throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (!vendor.is_kyc_completed) {
+        throw new HttpException(
+          'You must complete vendor KYC to accept orders',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      const vendorLocation = await this.vendorLocationRepository.findOne({
+        where: { id: operator.vendor.id },
+      });
+
+      if (!vendorLocation) {
+        throw new HttpException(
+          'Vendor location not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      order.order_status = OrderStatus.PROCESSING;
+      order.updated_at = new Date();
+      const updatedOrder = await this.orderRepository.save(order);
+
+      this.socketGateway.sendEvent(
+        operator.id,
+        UserType.OPERATOR,
+        'refresh-orders',
+        {
+          message: 'order accepted by you',
+        },
+      );
+      // Notify the vendor that rider is on his way
+      this.socketGateway.sendVendorNotification(order?.vendor?.id, {
+        message: 'Ensure order is ready. Do not keep rider waiting',
+        title: 'Order Accepted By You',
+        order: order,
+      });
+
+      // Now send access code to vendor
+      if (vendorLocation?.intl_phone_format) {
+        const defaultSMSProvider = await this.smsRepository.findOne({
+          where: { is_default: true },
+        });
+        if (!defaultSMSProvider) {
+          throw new HttpException(
+            'No default SMS provider found',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        try {
+          await this.smsService.sendOTP({
+            providerEntity: defaultSMSProvider,
+            message: `Use the access code below to verify rider. ${order.access_code}`,
+            phoneNumber: vendorLocation?.intl_phone_format,
+          });
+        } catch (error) {
+          console.log(error);
+          throw new HttpException(
+            `Error occurred sending otp ${error}`,
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        return {
+          message: 'Order accepted successfully',
+          order: updatedOrder,
+        };
+      }
+
+      // Also send to email
+      await this.mailerService.sendMail({
+        to: email_address,
+        subject: 'Account Password Reset OTP',
+        html: `<div>
+        <br/>
+        <h5>Hi ${vendor.name}</h5>
+        <br/>
+        <p>Use the access code below. Keep it confidential. You will be required to present it to vendor upon your arrival. </p>
+        <strong>${order.access_code}</strong>
+        </div>`,
+      });
+    }
+  }
+
+  async rejectOrder(email_address: string, payload: RejectOrderDTO) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException('Operator not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (!operator.is_email_verified || !operator.is_kyc_completed) {
+      throw new HttpException(
+        'You must complete your KYC to reject orders',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const existingFee = await this.commissionAndFeeRepository.find({});
+    if (existingFee?.length > 0) {
+      throw new HttpException(
+        'Fees not setup. Contact support',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const order = await this.orderRepository.findOne({
+      where: { id: payload?.orderId },
+      relations: ['customer'],
+    });
+
+    if (!order) {
+      throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (order.order_type !== OrderType.PARCEL_ORDER) {
+      const vendor = await this.vendorRepository.findOne({
+        where: { id: operator.vendor?.id },
+      });
+
+      if (!vendor) {
+        throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (!vendor.is_kyc_completed) {
+        throw new HttpException(
+          'You must complete vendor KYC to reject orders',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      const wallet = await this.walletRepository.findOne({
+        where: { vendor: { id: vendor?.id } },
+      });
+
+      if (!wallet) {
+        throw new HttpException(
+          'Vendor wallet not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      if (wallet.balance < existingFee[0]?.rider_order_cancellation) {
+        throw new HttpException(
+          'Insufficient wallet balance to reject order',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      wallet.prev_balance = wallet.balance;
+      wallet.balance =
+        wallet.balance - existingFee[0]?.vendor_order_cancellation;
+
+      await this.walletRepository.save(wallet);
+
+      // Now create a transaction to this effect here
+      const trans = this.transactionRepository.create({
+        amount: existingFee[0]?.vendor_order_cancellation,
+        fee: 0,
+        transaction_type: TransactionType.WITHDRAWAL,
+        summary: 'Order rejection fee',
+        tx_ref: `CNL-${order?.order_id}-${generateRandomCoupon(4, vendor?.name)}`,
+        status: 'success',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      trans.vendor = vendor;
+      trans.vendor_location = order.vendor_location;
+      await this.transactionRepository.save(trans);
+
+      // Refund the customer here
+      const customerWallet = await this.customerWalletRepository.findOne({
+        where: { customer: { id: order?.customer?.id } },
+      });
+
+      if (!customerWallet) {
+        throw new HttpException(
+          'Customer wallet not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      customerWallet.prev_balance = customerWallet.balance;
+      customerWallet.balance = customerWallet.balance + order.total_amount;
+      customerWallet.updated_at = new Date();
+
+      // Now create a transaction to this effect here
+      const systemTrans = this.systemTransactionRepository.create({
+        amount: existingFee[0]?.vendor_order_cancellation,
+        fee: 0,
+        transaction_type: TransactionType.CREDIT,
+        summary: 'Order rejection earning',
+        tx_ref: `CNL-${order?.order_id}-${generateRandomCoupon(4, vendor?.name)}`,
+        status: 'success',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      await this.systemTransactionRepository.save(systemTrans);
+
+      // NOw notify customer that order was rejected
+      this.socketGateway.sendEvent(
+        order?.customer?.id,
+        UserType.CUSTOMER,
+        'refresh-orders',
+        {
+          message: 'Order was Rejected',
+        },
+      );
+
+      this.socketGateway.sendNotification(
+        order?.customer?.id,
+        UserType.CUSTOMER,
+        {
+          title: 'Order Rejected.',
+          message: 'Your Order was Rejected. Please re-order again.',
+        },
+      );
+
+      return {
+        message: 'Order rejected successfully',
       };
     }
   }

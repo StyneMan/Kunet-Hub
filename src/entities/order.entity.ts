@@ -8,7 +8,6 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Customer } from './customer.entity';
-import { Vendor } from './vendor.entity';
 import { Rider } from './rider.entity';
 import OrderItemI from 'src/interfaces/order.item';
 import { OrderType } from 'src/enums/order.type.enum';
@@ -18,6 +17,9 @@ import { ReceiverI } from 'src/commons/interfaces/receiver.interface';
 import { ShippingType } from 'src/enums/shipping.type.enum';
 import { DeliveryType } from 'src/enums/delivery.type.enum';
 import { PaymentMethod } from 'src/enums/payment-method.enum';
+import { VendorLocation } from './vendor.location.entity';
+import { Vendor } from './vendor.entity';
+import { Addon, ProdVariations } from './product.entity';
 
 @Entity({ name: 'orders' })
 export class Order {
@@ -96,6 +98,10 @@ export class Order {
   @JoinColumn()
   vendor?: Vendor;
 
+  @ManyToOne(() => VendorLocation, { nullable: true })
+  @JoinColumn()
+  vendor_location?: VendorLocation;
+
   @ManyToOne(() => Rider, { nullable: true })
   @JoinColumn()
   rider: Rider;
@@ -112,8 +118,17 @@ export class Order {
   @Column({ type: 'enum', enum: DeliveryType, nullable: false })
   delivery_type: DeliveryType;
 
+  @Column({ type: 'json', nullable: true })
+  variations?: ProdVariations[];
+
+  @Column({ type: 'json', nullable: true })
+  addOns?: Addon[];
+
   @Column({ type: 'timestamp', nullable: true, default: null })
   order_delivered_at?: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  paid_at?: Date | null;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

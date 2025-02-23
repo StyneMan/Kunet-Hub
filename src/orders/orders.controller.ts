@@ -120,6 +120,36 @@ export class OrdersController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('branch/:id/all')
+  async branchOrders(
+    @Req() req: Request,
+    @Query('status') status?: OrderStatus,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.orderService.branchOrders(
+      req?.params?.id,
+      page,
+      limit,
+      status,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('vendor/:id/accepted')
+  async vendorAcceptedOrders(
+    @Req() req: Request,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.orderService.vendorAcceptedOrders(
+      req?.params?.id,
+      page,
+      limit,
+    );
+  }
+
   @Put(':id/status/update')
   async updateOrderStatus(
     @Req() req: Request,

@@ -1,0 +1,27 @@
+import { IsEmail, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+
+export class InitPaymentLinkDTO {
+  @IsNotEmpty()
+  @IsNumber()
+  amount: number;
+
+  @IsNotEmpty()
+  @IsEmail()
+  email_address: string;
+
+  @IsNotEmpty()
+  @IsString()
+  full_name: string;
+
+  @IsNotEmpty()
+  @IsString()
+  customer_id: string;
+
+  @IsNotEmpty()
+  @IsString()
+  phone_number: string;
+
+  @IsNotEmpty()
+  @IsString()
+  title: string;
+}

@@ -3,10 +3,16 @@ import {
   IsBoolean,
   IsEnum,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
 } from 'class-validator';
-import { Variation } from 'src/entities/variations.entity';
+import {
+  Addon,
+  Nutrition,
+  ProdVariations,
+  Specification,
+} from 'src/entities/product.entity';
 import { ProductStatus } from 'src/enums/product.status.enum';
 
 export class UpdateProductDTO {
@@ -39,12 +45,16 @@ export class UpdateProductDTO {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  summary?: string;
+
+  @IsOptional()
   @IsBoolean()
   is_variable?: boolean;
 
   @IsOptional()
   @IsArray()
-  variations?: Variation[];
+  variations?: ProdVariations[];
 
   @IsOptional()
   @IsString()
@@ -53,4 +63,16 @@ export class UpdateProductDTO {
   @IsOptional()
   @IsEnum(ProductStatus)
   status?: ProductStatus;
+
+  @IsOptional()
+  @IsArray()
+  specifications?: Specification[];
+
+  @IsOptional()
+  @IsArray()
+  addons?: Addon[];
+
+  @IsOptional()
+  @IsObject()
+  nutrition?: Nutrition;
 }

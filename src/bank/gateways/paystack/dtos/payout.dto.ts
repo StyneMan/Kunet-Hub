@@ -1,9 +1,11 @@
 import {
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsNumberString,
   IsString,
 } from 'class-validator';
+import { UserType } from 'src/enums/user.type.enum';
 
 export class PaystackPayoutDTO {
   @IsNotEmpty()
@@ -25,4 +27,8 @@ export class PaystackPayoutDTO {
   @IsNotEmpty()
   @IsString()
   beneficiary_name: string;
+
+  @IsNotEmpty()
+  @IsEnum(UserType)
+  user_type: UserType;
 }

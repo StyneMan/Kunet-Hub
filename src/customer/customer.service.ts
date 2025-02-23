@@ -21,7 +21,11 @@ import { Admin } from 'src/entities/admin.entity';
 import { AdminAccess } from 'src/enums/admin.access.enum';
 import { AdminRoles } from 'src/enums/admin.roles.enum';
 import { Cart } from 'src/entities/cart.entity';
-import { AddToCartDTO, CartItemDTO } from './dtos/addtocart.dto';
+import {
+  AddToCartDTO,
+  CartItemDTO,
+  ReorderToCartDTO,
+} from './dtos/addtocart.dto';
 import { Product } from 'src/entities/product.entity';
 import { UpdateCartDTO } from './dtos/updatecart.dto';
 import { UserType } from 'src/enums/user.type.enum';
@@ -46,6 +50,8 @@ import * as bcrypt from 'bcrypt';
 import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 import { OrderStatus } from 'src/enums/order.status.enum';
 import { OrderType } from 'src/enums/order.type.enum';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { stringify } from 'flatted';
 // import { NotificationGateway } from 'src/notification/notification.gateway';
 
 @Injectable()
@@ -77,6 +83,8 @@ export class CustomerService {
     private readonly vendorRepository: Repository<Vendor>,
     @InjectRepository(Coupon)
     private readonly couponRepository: Repository<Coupon>,
+    @InjectRepository(VendorLocation)
+    private readonly vendorLocationRepository: Repository<VendorLocation>,
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
   ) {}
@@ -616,8 +624,10 @@ export class CustomerService {
     const cartItem = this.cartItemRepository.create({
       amount: payload?.amount,
       name: payload?.name,
+      addOns: payload?.addOns,
       total_amount: payload?.total_amount,
-      selections: payload?.selections,
+      extras: payload?.extras,
+      variations: payload?.variations,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -633,9 +643,9 @@ export class CustomerService {
       where: { email_address: email_address },
     });
 
-    this.socketGateway.sendNotification(customer?.id, UserType.CUSTOMER, {
-      message: 'HELLO TESTING SOCKET.IO !!!',
-    });
+    // this.socketGateway.sendNotification(customer?.id, UserType.CUSTOMER, {
+    //   message: 'Item added to cart',
+    // });
 
     if (!customer) {
       throw new HttpException(
@@ -647,11 +657,12 @@ export class CustomerService {
       );
     }
 
-    const vendor = await this.vendorRepository.findOne({
-      where: { id: payload?.vendor_id },
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.branch_id },
+      relations: ['vendor'],
     });
 
-    if (!vendor) {
+    if (!vendorLocation) {
       throw new HttpException(
         {
           message: 'Vendor not found!',
@@ -661,7 +672,7 @@ export class CustomerService {
       );
     }
 
-    if (vendor.status !== VendorStatus.ACTIVE) {
+    if (vendorLocation?.vendor.status !== VendorStatus.ACTIVE) {
       throw new HttpException(
         {
           message: 'Vendor account not active',
@@ -673,7 +684,7 @@ export class CustomerService {
 
     const cart = await this.cartRepository.findOne({
       where: {
-        vendor: { id: payload?.vendor_id },
+        vendor_location: { id: payload?.branch_id },
         customer: { id: customer?.id },
       },
     });
@@ -684,7 +695,9 @@ export class CustomerService {
         amount: payload?.item.amount,
         name: payload?.item?.name,
         product_id: payload?.item?.product_id,
-        selections: payload?.item?.selections,
+        extras: payload?.item?.extras,
+        addOns: payload?.item?.addOns,
+        variations: payload?.item?.variations,
         total_amount: payload?.total_amount,
       });
       cartItemAdded.cart = cart;
@@ -717,20 +730,22 @@ export class CustomerService {
         UserType.CUSTOMER,
         'refresh-cart',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' Item added to cart',
         },
       );
 
       return {
         message: 'Updated cart successfully',
-        data: updatedCart,
+        data: stringify(updatedCart),
       };
     } else {
       const cartItemAdded = await this.addCartItem(customer?.email_address, {
         amount: payload?.item.amount,
         name: payload?.item?.name,
         product_id: payload?.item?.product_id,
-        selections: payload?.item?.selections,
+        extras: payload?.item?.extras,
+        addOns: payload?.item?.addOns,
+        variations: payload?.item?.variations,
         total_amount: payload?.total_amount,
       });
 
@@ -742,7 +757,8 @@ export class CustomerService {
       });
 
       cartNew.customer = customer;
-      cartNew.vendor = vendor;
+      cartNew.vendor_location = vendorLocation;
+      cartNew.vendor = vendorLocation?.vendor;
       cartNew.items = [cartItemAdded];
       const savedCart = await this.cartRepository.save(cartNew);
 
@@ -760,7 +776,168 @@ export class CustomerService {
 
       return {
         message: 'Added to cart successfully',
-        data: savedCart,
+        data: stringify(savedCart),
+      };
+    }
+  }
+
+  async reorderToCart(email_address: string, payload: ReorderToCartDTO) {
+    // First check if user is valid
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    this.socketGateway.sendNotification(customer?.id, UserType.CUSTOMER, {
+      message: 'Item reordered successfully',
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.branch_id },
+      relations: ['vendor'],
+    });
+
+    if (!vendorLocation) {
+      throw new HttpException(
+        {
+          message: 'Vendor not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (vendorLocation?.vendor.status !== VendorStatus.ACTIVE) {
+      throw new HttpException(
+        {
+          message: 'Vendor account not active',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const cart = await this.cartRepository.findOne({
+      where: {
+        vendor_location: { id: payload?.branch_id },
+        customer: { id: customer?.id },
+      },
+    });
+
+    if (cart) {
+      for (let elem = 0; elem < payload?.items.length; elem++) {
+        const element = payload?.items[elem];
+        const cartItemAdded = await this.addCartItem(customer?.email_address, {
+          amount: element?.amount,
+          name: element?.name,
+          product_id: element?.product_id,
+          extras: element?.extras,
+          addOns: element?.addOns,
+          variations: element?.variations,
+          total_amount: payload?.total_amount,
+        });
+        cartItemAdded.cart = cart;
+        await this.cartItemRepository.save(cartItemAdded);
+      }
+
+      // Now get all cart items for this customer and vendor
+      const allItems = await this.cartItemRepository.find({
+        where: {
+          cart: { id: cart?.id },
+        },
+      });
+
+      let totalAmt = 0;
+      for (let index = 0; index < allItems.length; index++) {
+        const element = allItems[index];
+        totalAmt = totalAmt + element?.total_amount;
+      }
+
+      // const cartUpdate = this.cartRepository.create({
+      //   total_amount: payload?.total_amount,
+      //   updated_at: new Date(),
+      // });
+      cart.total_amount = totalAmt;
+      cart.items = allItems;
+      cart.updated_at = new Date();
+      const updatedCart = await this.cartRepository.save(cart);
+
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-cart',
+        {
+          message: 'Item reordered successfully',
+        },
+      );
+
+      return {
+        message: 'Item reordered successfully',
+        data: stringify(updatedCart),
+      };
+    } else {
+      // const cartItemAdded = await this.addCartItem(customer?.email_address, {
+      //   amount: payload?.item.amount,
+      //   name: payload?.item?.name,
+      //   product_id: payload?.item?.product_id,
+      //   selections: payload?.item?.selections,
+      //   total_amount: payload?.total_amount,
+      // });
+
+      const cartNew = this.cartRepository.create({
+        total_amount: payload?.total_amount,
+        vendor_note: payload?.vendor_note,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      cartNew.customer = customer;
+      cartNew.vendor_location = vendorLocation;
+      cartNew.vendor = vendorLocation?.vendor;
+      // cartNew.items = [cartItemAdded];
+      const savedCart = await this.cartRepository.save(cartNew);
+
+      // Now add cart items
+      for (let elem = 0; elem < payload?.items.length; elem++) {
+        const element = payload?.items[elem];
+        const cartItemAdded = await this.addCartItem(customer?.email_address, {
+          amount: element?.amount,
+          name: element?.name,
+          product_id: element?.product_id,
+          extras: element?.extras,
+          addOns: element?.addOns,
+          variations: element?.variations,
+          total_amount: payload?.total_amount,
+        });
+        cartItemAdded.cart = savedCart;
+        const addedLst = await this.cartItemRepository.save(cartItemAdded);
+        savedCart.items = [...savedCart.items, addedLst];
+        await this.cartRepository.save(savedCart);
+      }
+
+      // cartItemAdded.cart = savedCart;s
+
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-cart',
+        {
+          message: 'ADDED TO CART!',
+        },
+      );
+
+      return {
+        message: 'Item reordered successfully',
+        data: stringify(savedCart),
       };
     }
   }
@@ -773,6 +950,9 @@ export class CustomerService {
         .createQueryBuilder('cart') // Alias for the Admin table
         .leftJoinAndSelect('cart.product', 'product') //
         .leftJoinAndSelect('cart.customer', 'customer') //
+        .leftJoinAndSelect('cart.vendor_location', 'vendor_location')
+        .leftJoinAndSelect('cart.vendor', 'vendor')
+        .leftJoinAndSelect('vendor.categories', 'categories')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -785,6 +965,58 @@ export class CustomerService {
       totalPages: Math.ceil(total / limit),
       totalItems: total,
       perPage: limit,
+    };
+  }
+
+  async removeAllCartItems(email_address: string, cartId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const cart = await this.cartRepository.findOne({
+      where: { id: cartId },
+    });
+
+    if (!cart) {
+      throw new HttpException(
+        {
+          message: 'Customer cart not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    await this.cartItemRepository.delete({
+      cart: { id: cartId },
+    });
+
+    const updatedCart = await this.cartRepository.findOne({
+      where: { id: cartId },
+    });
+
+    this.socketGateway.sendEvent(
+      cart?.customer?.id,
+      UserType.CUSTOMER,
+      'refresh-cart',
+      {
+        message: 'ADDED TO CART!',
+      },
+    );
+
+    return {
+      message: 'Cart Items cleared successfully',
+      cart: updatedCart,
     };
   }
 
@@ -809,7 +1041,8 @@ export class CustomerService {
       this.cartRepository
         .createQueryBuilder('cart') // Alias for the table
         .leftJoinAndSelect('cart.customer', 'customer') // Join the related product table
-        .leftJoinAndSelect('cart.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('cart.vendor_location', 'vendor_location') // Join the related product table
+        .leftJoinAndSelect('vendor_location.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('cart.items', 'items') // Join the related product table
         .leftJoinAndSelect('vendor.categories', 'categories') // Join the related product table
         .leftJoinAndSelect('items.product', 'product') // Join the related product table
@@ -821,9 +1054,10 @@ export class CustomerService {
       this.cartRepository
         .createQueryBuilder('cart') // Alias for the table
         .leftJoin('cart.customer', 'customer') // Join the related vendor table
-        .leftJoin('cart.vendor', 'vendor') // Join the related vendor table
+        .leftJoin('cart.vendor_location', 'vendor_location') // Join the related vendor table
+        .leftJoin('vendor_location.vendor', 'vendor') // Join the related vendor table
         .leftJoin('cart.items', 'items') // Join the related vendor table
-        .leftJoinAndSelect('vendor.categories', 'categories') // Join the related product table
+        .leftJoin('vendor.categories', 'categories') // Join the related product table
         .leftJoinAndSelect('items.product', 'product') // Join the related product table
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .getCount(), // Count total records for pagination
@@ -934,16 +1168,28 @@ export class CustomerService {
       customer?.id,
       UserType.CUSTOMER,
       'refresh-cart',
-      {
-        message: 'HELLO TESTING SOCKET.IO !!!',
-      },
+      {},
     );
     return {
       message: 'Cart item deleted successfully',
     };
   }
 
-  async deleteCart(cartId: string) {
+  async deleteCart(email_address: string, cartId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
     const cart = await this.cartRepository.findOne({
       where: { id: cartId },
     });
@@ -960,8 +1206,17 @@ export class CustomerService {
 
     await this.cartRepository.delete({ id: cartId });
 
+    this.socketGateway.sendEvent(
+      cart?.customer?.id,
+      UserType.CUSTOMER,
+      'refresh-cart',
+      {
+        message: 'DELETED CART!',
+      },
+    );
+
     return {
-      message: 'Cart item deleted successfully',
+      message: 'Cart deleted successfully',
     };
   }
 
@@ -1009,7 +1264,7 @@ export class CustomerService {
       UserType.CUSTOMER,
       'refresh-shipping-address',
       {
-        message: 'HELLO TESTING SOCKET.IO !!!',
+        message: '',
       },
     );
 
@@ -1085,7 +1340,7 @@ export class CustomerService {
       UserType.CUSTOMER,
       'refresh-shipping-address',
       {
-        message: 'HELLO TESTING SOCKET.IO !!!',
+        message: '',
       },
     );
 
@@ -1137,7 +1392,7 @@ export class CustomerService {
           UserType.CUSTOMER,
           'refresh-shipping-address',
           {
-            message: 'HELLO TESTING SOCKET.IO !!!',
+            message: ' ',
           },
         );
 
@@ -1172,7 +1427,7 @@ export class CustomerService {
       UserType.CUSTOMER,
       'refresh-shipping-address',
       {
-        message: 'HELLO TESTING SOCKET.IO !!!',
+        message: ' ',
       },
     );
 
@@ -1181,7 +1436,7 @@ export class CustomerService {
     };
   }
 
-  async likeUnlikeVendor(email_address: string, vendorId: string) {
+  async likeUnlikeVendorLocation(email_address: string, branchId: string) {
     const customer = await this.customerRepository.findOne({
       where: { email_address: email_address },
     });
@@ -1190,16 +1445,20 @@ export class CustomerService {
       throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
     }
 
-    const vendor = await this.vendorRepository.findOne({
-      where: { id: vendorId },
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: branchId },
+      relations: ['vendor'],
     });
 
-    if (!vendor) {
+    if (!vendorLocation) {
       throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
     }
 
     const favourite = await this.customerFavsRepository.findOne({
-      where: { customer: { id: customer?.id }, vendor: { id: vendorId } },
+      where: {
+        customer: { id: customer?.id },
+        vendor_location: { id: branchId },
+      },
     });
 
     if (favourite) {
@@ -1211,7 +1470,7 @@ export class CustomerService {
         UserType.CUSTOMER,
         'refresh-favourites',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -1225,7 +1484,7 @@ export class CustomerService {
       });
 
       newFav.customer = customer;
-      newFav.vendor = vendor;
+      newFav.vendor_location = vendorLocation;
 
       await this.customerFavsRepository.save(newFav);
       this.socketGateway.sendEvent(
@@ -1233,7 +1492,7 @@ export class CustomerService {
         UserType.CUSTOMER,
         'refresh-favourites',
         {
-          message: 'HELLO TESTING SOCKET.IO !!!',
+          message: ' ',
         },
       );
 
@@ -1271,9 +1530,9 @@ export class CustomerService {
     const queryBuilder = this.customerFavsRepository
       .createQueryBuilder('favourite')
       .leftJoinAndSelect('favourite.customer', 'customer')
-      .leftJoinAndSelect('favourite.vendor', 'vendor')
+      .leftJoinAndSelect('favourite.vendor_location', 'vendor_location')
+      .leftJoinAndSelect('vendor_location.vendor', 'vendor') // Join categories for the vendor
       .leftJoinAndSelect('vendor.categories', 'categories') // Join categories for the vendor
-      .leftJoinAndSelect('vendor.zone', 'zone') // Join categories for the vendor
       .where('customer.id = :customerId', { customerId })
       .orderBy('favourite.created_at', 'DESC'); // Sort by created_at in descending order
 
@@ -1339,8 +1598,9 @@ export class CustomerService {
       this.customerFavsRepository
         .createQueryBuilder('favourite') // Alias for the table
         .leftJoin('favourite.customer', 'customer') // Join the related customer table
-        .leftJoin('favourite.vendor', 'vendor') // Join the related vendor table
-        .select(['vendor.id AS vendorId', 'customer.id AS customerId']) // Select specific fields
+        .leftJoin('favourite.vendor_location', 'vendor_location') // Join the related vendor table
+        .leftJoin('vendor_location.vendor', 'vendor') // Join the related vendor table
+        .select(['vendor_location.id AS branchId', 'customer.id AS customerId']) // Select specific fields
         .where('customer.id = :customerId', { customerId }) // Filter by customer ID
         .getRawMany(), // Execute query to fetch raw results
 
@@ -1376,9 +1636,10 @@ export class CustomerService {
 
     const [data, total] = await Promise.all([
       this.customerTransactionsRepository
-        .createQueryBuilder('trans') // Alias for the table
-        .leftJoinAndSelect('trans.customer', 'customer') // Join the related product table
-        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .createQueryBuilder('trans')
+        .leftJoinAndSelect('trans.customer', 'customer')
+        .where('customer.id = :customerId', { customerId })
+        .andWhere('trans.completed_at IS NOT NULL')
         .orderBy('trans.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -1387,9 +1648,12 @@ export class CustomerService {
       this.customerTransactionsRepository
         .createQueryBuilder('trans') // Alias for the table
         .leftJoin('trans.customer', 'customer') // Join the related vendor table
-        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor
+        .andWhere('trans.completed_at IS NOT NULL')
         .getCount(), // Count total records for pagination
     ]);
+
+    console.log('CUSTOMER TRANSACTIONS ::: ', data);
 
     return {
       data,
@@ -1421,11 +1685,15 @@ export class CustomerService {
       this.ordersRepository
         .createQueryBuilder('orders') // Alias for the table
         .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
         .leftJoinAndSelect('vendor.categories', 'categories')
         .leftJoinAndSelect('vendor.owner', 'owner')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        // .andWhere('orders.paid_at != :paid_at', {
+        //   paid_at: null,
+        // })
         .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -1438,6 +1706,9 @@ export class CustomerService {
         .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
         .innerJoinAndSelect('vendor.categories', 'categories')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        // .andWhere('orders.paid_at != :paid_at', {
+        //   paid_at: null,
+        // })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -1480,6 +1751,9 @@ export class CustomerService {
         .leftJoinAndSelect('vendor.owner', 'owner')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('orders.order_type = :order_type', { order_type })
+        .andWhere('orders.paid_at != :paid_at', {
+          paid_at: null,
+        })
         .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -1493,6 +1767,9 @@ export class CustomerService {
         .innerJoinAndSelect('vendor.categories', 'categories')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('orders.order_type = :order_type', { order_type })
+        .andWhere('orders.paid_at != :paid_at', {
+          paid_at: null,
+        })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -1547,7 +1824,10 @@ export class CustomerService {
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
-        }) // Filter by order status
+        })
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
         .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -1562,6 +1842,9 @@ export class CustomerService {
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
         }) // Filter by order status
+        .andWhere('order.paid_at != :paid_at', {
+          paid_at: null,
+        })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -1817,10 +2100,10 @@ export class CustomerService {
   async search(query: string): Promise<any> {
     if (!query) return { vendors: [], products: [] };
 
-    const vendors = await this.vendorRepository.find({
-      where: { name: ILike(`%${query}%`) }, // Case-insensitive LIKE query
+    const vendors = await this.vendorLocationRepository.find({
+      where: { vendor: { name: ILike(`%${query}%`) } }, // Case-insensitive LIKE query
       take: 10,
-      relations: ['categories', 'zone', 'owner'], // Populate related categories
+      relations: ['vendor'], // Populate related categories
     });
 
     const products = await this.productRepository.find({

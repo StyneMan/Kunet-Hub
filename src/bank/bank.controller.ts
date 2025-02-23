@@ -7,7 +7,6 @@ import {
   Put,
   Query,
   Req,
-  Res,
   UseGuards,
   UsePipes,
   ValidationPipe,
@@ -17,11 +16,9 @@ import { ValidationError } from 'class-validator';
 import { VerifyAccountDTO } from './dtos/verifyaccount.dto';
 import { AddBankDTO } from './dtos/addbank.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt_guard';
-import { Request, Response } from 'express';
+import { Request } from 'express';
 import { FlutterwavePaymentLinkDTO } from './dtos/flutterwave.payment.dto';
-import { PaystackPaymentLinkDTO } from './dtos/paystack.payment.init.dto';
 import { PayCardOrderDTO, PayWalletOrderDTO } from './dtos/pay.card.order.dto';
-import { PaymentGatewayType } from 'src/enums/payment.gateways.enum';
 import { UpdateBankDTO } from './dtos/updatebank.dto';
 
 @Controller('bank')
@@ -256,7 +253,7 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('payments/flutterwave/init')
+  @Post('payment/init')
   @UsePipes(
     new ValidationPipe({
       exceptionFactory: (errors: ValidationError[]) => {
@@ -277,8 +274,8 @@ export class BankController {
       },
     }),
   )
-  async initFlutterwavePayment(@Body() payload: FlutterwavePaymentLinkDTO) {
-    return this.bankService.initFlutterwavePayment(payload);
+  async initPayment(@Body() payload: FlutterwavePaymentLinkDTO) {
+    return this.bankService.initPayment(payload);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -304,9 +301,7 @@ export class BankController {
     }),
   )
   async initPaywithCard(@Body() payload: PayCardOrderDTO) {
-    if (payload?.paymentGateway === PaymentGatewayType.FLUTTER_WAVE) {
-      return this.bankService.flutterwaveOrderChargeCard(payload);
-    }
+    return this.bankService.orderChargeCard(payload);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -335,32 +330,6 @@ export class BankController {
     return this.bankService.orderWithWallet(req?.user?.sub, payload);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Post('payments/paystack/init')
-  @UsePipes(
-    new ValidationPipe({
-      exceptionFactory: (errors: ValidationError[]) => {
-        const validationErrors = errors.map((error) => ({
-          field: error.property,
-          errors: Object.values(error.constraints || {}),
-        }));
-
-        // Extract the first error message from the validation errors
-        const firstErrorField = validationErrors[0].field;
-        const firstErrorMessage = validationErrors[0].errors[0];
-
-        return new BadRequestException({
-          statusCode: 400,
-          message: `${firstErrorField}: ${firstErrorMessage}`,
-          errors: validationErrors,
-        });
-      },
-    }),
-  )
-  async initPaystackPayment(@Body() payload: PaystackPaymentLinkDTO) {
-    return this.bankService.initPaystackPayment(payload);
-  }
-
   @Post('flutterwave/webhook')
   async flutterwaveWebhook(@Req() req: Request) {
     console.log('REQUEST ::: ', req.body);
@@ -371,15 +340,22 @@ export class BankController {
       console.log('DATA HERE ::: ', data);
       if (`${data?.tx_ref}`.startsWith('FBW')) {
         return this.bankService.flutterwaveWebHook(data);
-      } else if (`${data?.tx_ref}`.startsWith('FBO')) {
+      } else {
         return this.bankService.flutterwaveCardWebHook(data);
       }
     }
   }
 
   @Post('paystack/webhook')
-  async paystackWebhook(@Req() req: Request, @Res() res: Response) {
-    console.log('REQUEST ::: ', req.body);
-    console.log('RESPONSE ::: ', res.json());
+  async paystackWebhook(@Req() req: Request) {
+    console.log('PAYLOAD DATA ::: ', req.body?.data);
+    // console.log('RESPONSE ::: ', res.status);
+
+    const event = req.body?.event;
+    if (event === 'charge.success') {
+      const data = req.body?.data;
+      console.log('DATA HERE ::: ', data);
+      return this.bankService.paystackWebHook(data);
+    }
   }
 }

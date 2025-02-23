@@ -16,6 +16,7 @@ import { SocketModule } from 'src/socket/socket.module';
 import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
 import { Coupon } from 'src/entities/coupon.entity';
 import { Order } from 'src/entities/order.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { Order } from 'src/entities/order.entity';
       AdminActivity,
       CustomerWallet,
       ShippingAddress,
+      VendorLocation,
       CustomerFavourites,
       CustomerTransactions,
     ]),

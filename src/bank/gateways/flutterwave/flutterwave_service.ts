@@ -38,6 +38,7 @@ import { OrderType } from 'src/enums/order.type.enum';
 import { orderConfirmationEmail } from 'src/utils/order_confirmation_mail';
 import { Operator } from 'src/entities/operator.entity';
 import { Cart } from 'src/entities/cart.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 export class FlutterwaveService {
   constructor(
@@ -53,6 +54,8 @@ export class FlutterwaveService {
     private orderRepository: Repository<Order>,
     @InjectRepository(Customer)
     private customerRepository: Repository<Customer>,
+    @InjectRepository(DummyOrder)
+    private dummyOrderRepository: Repository<DummyOrder>,
     @InjectRepository(Operator)
     private operatorRepository: Repository<Operator>,
     @InjectRepository(RiderBank)
@@ -167,6 +170,7 @@ export class FlutterwaveService {
     // }
   }
 
+  // PLACE ORDER WITH CARD
   async flutterwavePaywithCard(secretKey: string, payload: PayCardOrderDTO) {
     const customer = await this.customerRepository.findOne({
       where: { id: payload?.paymentInfo?.customer_id },
@@ -204,7 +208,7 @@ export class FlutterwaveService {
     );
 
     // // Create a new order here
-    const order = await this.orderService.createOrder(
+    const order = await this.orderService.createDummyOrder(
       orderReference,
       randCode,
       payload?.userType,
@@ -212,10 +216,10 @@ export class FlutterwaveService {
     );
 
     console.log('CREATE ORDER RESPONSE :: ', order);
-
     return response.data;
   }
 
+  // WEBHOOK ACTION
   async flutterwaveTopupWallet(data: any) {
     // First find transaction by tx-ref
     const transaction = await this.customerTransactionRepository.findOne({
@@ -231,6 +235,7 @@ export class FlutterwaveService {
     transaction.amount = data?.charged_amount;
     transaction.fee = data?.app_fee;
     transaction.status = data?.status;
+    transaction.completed_at = new Date();
     transaction.updated_at = new Date();
 
     await this.customerTransactionRepository.save(transaction);
@@ -257,9 +262,7 @@ export class FlutterwaveService {
       transaction?.customer?.id,
       UserType.CUSTOMER,
       'refresh-wallet',
-      {
-        message: 'HELLO TESTING SOCKET.IO !!!',
-      },
+      {},
     );
 
     return {
@@ -268,32 +271,68 @@ export class FlutterwaveService {
     };
   }
 
+  // WEBHOOK ACTION
   async flutterwaveCardPayHook(data: any) {
     // First find transaction by tx-ref
-    const order = await this.orderRepository.findOne({
+    const dummyOrder = await this.dummyOrderRepository.findOne({
       where: { order_id: data?.tx_ref },
-      relations: ['customer', 'vendor', 'operator'],
+      relations: ['customer', 'vendor', 'vendor_location', 'operator'],
     });
 
     console.log('CHECKING DATA FROM WEBHOOK :::', data);
-    console.log('CHECKING ORDER FROM WEBHOOK :::', order);
+    console.log('CHECKING DUMMY ORDER FROM WEBHOOK :::', dummyOrder);
 
-    if (!order) {
+    if (!dummyOrder) {
       throw new HttpException('No order found.', HttpStatus.NOT_FOUND);
     }
 
     // Now Check if it's from customer or operator
-    if (order?.customer) {
+    if (dummyOrder?.customer) {
       const customer = await this.customerRepository.findOne({
-        where: { id: order?.customer?.id },
+        where: { id: dummyOrder?.customer?.id },
       });
 
       if (!customer) {
         return;
       }
       // Now check the order type and other info
-      if (order?.order_type === OrderType.PARCEL_ORDER) {
+      if (dummyOrder?.order_type === OrderType.PARCEL_ORDER) {
         // Send order email here
+        // Now create the real order here andd delete dummy order
+        const order = this.orderRepository.create({
+          access_code: dummyOrder?.access_code,
+          coupon_discount: dummyOrder?.coupon_discount,
+          delivery_addr_lat: dummyOrder?.delivery_addr_lat,
+          delivery_addr_lng: dummyOrder?.delivery_addr_lng,
+          delivery_address: dummyOrder?.delivery_address,
+          delivery_fee: dummyOrder?.delivery_fee,
+          delivery_time: dummyOrder?.delivery_time,
+          delivery_type: dummyOrder?.delivery_type,
+          items: dummyOrder?.items,
+          order_delivered_at: dummyOrder?.order_delivered_at,
+          order_id: dummyOrder?.order_id,
+          order_status: dummyOrder?.order_status,
+          paid_at: new Date(),
+          receiver: dummyOrder?.receiver,
+          order_type: dummyOrder?.order_type,
+          payment_method: dummyOrder?.payment_method,
+          pickup_addr_lat: dummyOrder?.pickup_addr_lat,
+          pickup_addr_lng: dummyOrder?.pickup_addr_lng,
+          pickup_address: dummyOrder?.pickup_address,
+          rider_commission: dummyOrder?.rider_commission,
+          rider_note: dummyOrder?.rider_note,
+          service_charge: dummyOrder?.service_charge,
+          shipping_type: dummyOrder?.shipping_type,
+          total_amount: dummyOrder?.total_amount,
+          vendor_note: dummyOrder?.vendor_note,
+          variations: dummyOrder?.variations,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        order.customer = dummyOrder?.customer;
+        await this.orderRepository.save(order);
+
         // now send order confirmation email here
         await this.mailerService.sendMail({
           to: customer?.email_address,
@@ -307,9 +346,9 @@ export class FlutterwaveService {
             paymentMethod: order?.payment_method,
             deliveryFee: order?.delivery_fee,
             fullName: `${customer?.first_name} ${customer?.last_name}`,
-            vendorName: order?.vendor?.name ?? 'FastBuy Team',
+            vendorName: 'FastBuy Team',
             receiverName: order?.receiver?.name,
-            serviceCharge: 0,
+            serviceCharge: order?.service_charge ?? 0,
             deliveryAddress: order?.delivery_address,
             orderDate: new Date(`${order.created_at}`).toLocaleString('en-US'),
           }),
@@ -319,7 +358,7 @@ export class FlutterwaveService {
         const cart = await this.cartRepository.findOne({
           where: {
             customer: { id: customer?.id },
-            vendor: { id: order?.vendor?.id },
+            vendor_location: { id: dummyOrder?.vendor_location?.id },
           },
         });
 
@@ -332,12 +371,50 @@ export class FlutterwaveService {
           customer?.id,
           UserType.CUSTOMER,
           'refresh-cart',
-          {
-            message: 'HELLO TESTING SOCKET.IO !!!',
-          },
+          {},
         );
 
+        // Now create the real order here andd delete dummy order
+        const order = this.orderRepository.create({
+          access_code: dummyOrder?.access_code,
+          addOns: dummyOrder?.addOns,
+          coupon_discount: dummyOrder?.coupon_discount,
+          delivery_addr_lat: dummyOrder?.delivery_addr_lat,
+          delivery_addr_lng: dummyOrder?.delivery_addr_lng,
+          delivery_address: dummyOrder?.delivery_address,
+          delivery_fee: dummyOrder?.delivery_fee,
+          delivery_time: dummyOrder?.delivery_time,
+          delivery_type: dummyOrder?.delivery_type,
+          items: dummyOrder?.items,
+          order_delivered_at: dummyOrder?.order_delivered_at,
+          order_id: dummyOrder?.order_id,
+          order_status: dummyOrder?.order_status,
+          paid_at: new Date(),
+          receiver: dummyOrder?.receiver,
+          order_type: dummyOrder?.order_type,
+          payment_method: dummyOrder?.payment_method,
+          pickup_addr_lat: dummyOrder?.pickup_addr_lat,
+          pickup_addr_lng: dummyOrder?.pickup_addr_lng,
+          pickup_address: dummyOrder?.pickup_address,
+          rider_commission: dummyOrder?.rider_commission,
+          rider_note: dummyOrder?.rider_note,
+          service_charge: dummyOrder?.service_charge,
+          shipping_type: dummyOrder?.shipping_type,
+          total_amount: dummyOrder?.total_amount,
+          vendor_note: dummyOrder?.vendor_note,
+          variations: dummyOrder?.variations,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+
+        order.customer = dummyOrder?.customer;
+        order.vendor_location = dummyOrder?.vendor_location;
+        order.vendor = dummyOrder?.vendor;
+        await this.orderRepository.save(order);
+
         // Send order email here
+        const vendorName =
+          order?.vendor?.name + ' ' + order?.vendor_location?.branch_name;
         // now send order confirmation email here
         await this.mailerService.sendMail({
           to: customer?.email_address,
@@ -351,7 +428,7 @@ export class FlutterwaveService {
             paymentMethod: order?.payment_method,
             deliveryFee: order?.delivery_fee,
             fullName: `${customer?.first_name} ${customer?.last_name}`,
-            vendorName: order?.vendor?.name ?? 'FastBuy Team',
+            vendorName: vendorName,
             receiverName: order?.receiver?.name,
             serviceCharge: 0,
             deliveryAddress: order?.delivery_address,
@@ -364,10 +441,10 @@ export class FlutterwaveService {
         customer?.id,
         UserType.CUSTOMER,
         'refresh-orders',
-        {
-          message: 'HELLO TESTING SOCKET.IO !!',
-        },
+        {},
       );
+
+      return dummyOrder;
     }
   }
 

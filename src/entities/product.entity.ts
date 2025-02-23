@@ -7,10 +7,40 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Vendor } from './vendor.entity';
-import { Variation } from './variations.entity';
 import { Category } from './category.entity';
 import { ProductStatus } from 'src/enums/product.status.enum';
+import { VariationType } from 'src/enums/variation.type.enum';
+import { VendorLocation } from './vendor.location.entity';
+import { Vendor } from './vendor.entity';
+
+export type ProdVariations = {
+  price: number;
+  name: string;
+  value: string;
+  variationType?: VariationType;
+};
+
+export type Specification = {
+  name: string;
+  value: string;
+};
+
+export type Ingredient = {
+  name: string;
+  value: string;
+};
+
+export type Addon = {
+  name: string;
+  price: number;
+};
+
+export type Nutrition = {
+  carbs: number;
+  fats: number;
+  proteins: number;
+  calories: number;
+};
 
 @Entity({ name: 'products' })
 export class Product {
@@ -46,14 +76,32 @@ export class Product {
   rating: number;
 
   @Column({ type: 'json', nullable: true })
-  variations?: Variation[];
+  variations?: ProdVariations[];
+
+  @Column({ type: 'json', nullable: true })
+  specifications?: Specification[];
+
+  @Column({ type: 'json', nullable: true })
+  ingredients?: Ingredient[];
+
+  @Column({ type: 'json', nullable: true })
+  nutrition?: Nutrition;
+
+  @Column({ type: 'json', nullable: true })
+  addons?: Addon[];
 
   @Column({ type: 'json', nullable: false })
   images: string[];
 
-  @ManyToOne(() => Vendor)
-  @JoinColumn()
+  @ManyToOne(() => Vendor, {
+    onDelete: 'CASCADE',
+  })
   vendor: Vendor;
+
+  @ManyToOne(() => VendorLocation, (location) => location.products, {
+    onDelete: 'CASCADE',
+  })
+  vendor_location: VendorLocation;
 
   @Column({
     type: 'enum',

@@ -114,10 +114,10 @@ export class CustomerAuthService {
     }
 
     const createdUsr = await this.customerService.createCustomer(userData);
-    console.log('CREATED USER ', createdUsr);
 
     // Send OTP Code here
     const otpCode = generateOTP(4);
+    console.log('OTP CODE ', otpCode);
     const emailSent = await this.mailerService.sendMail({
       to: userData?.email_address,
       subject: 'New Account Creation',

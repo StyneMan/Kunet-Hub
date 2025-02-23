@@ -2,7 +2,6 @@ import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { FlutterwavePaymentLinkDTO } from './flutterwave.payment.dto';
 import { CreateOrderDTO } from 'src/orders/dtos/createorder.dto';
 import { UserType } from 'src/enums/user.type.enum';
-import { PaymentGatewayType } from 'src/enums/payment.gateways.enum';
 
 export class PayCardOrderDTO {
   @IsNotEmpty()
@@ -14,10 +13,6 @@ export class PayCardOrderDTO {
   @IsNotEmpty()
   @IsEnum(UserType)
   userType: UserType;
-
-  @IsNotEmpty()
-  @IsEnum(PaymentGatewayType)
-  paymentGateway: PaymentGatewayType;
 
   @IsOptional()
   @IsString()

@@ -75,6 +75,50 @@ export class OperatorController {
     @Req() req: Request,
     @Body() payload: UpdateOperatorDTO,
   ) {
-    return await this.operatorService.updateOperator(req?.params?.id, payload);
+    return await this.operatorService.updateOperatorById(
+      req?.params?.id,
+      payload,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('branch/:id/staffs')
+  async branchStaffs(
+    @Req() req: Request,
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.operatorService.findBranchOperators(
+      req?.params?.id,
+      page,
+      limit,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('staff/:id/suspend')
+  async suspendStaff(@Req() req: any) {
+    return await this.operatorService.suspendStaff(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('staff/:id/pardon')
+  async pardonStaff(@Req() req: any) {
+    return await this.operatorService.pardonStaff(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('staff/:id/delete')
+  async deleteStaff(@Req() req: any) {
+    return await this.operatorService.deleteStaff(
+      req?.user?.sub,
+      req?.params?.id,
+    );
   }
 }

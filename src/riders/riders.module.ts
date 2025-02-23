@@ -29,6 +29,8 @@ import { BroadnetService } from 'src/sms/providers/broadnet.service';
 import { VendorTransactions } from 'src/entities/vendor.transactions.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { DummyOrder } from 'src/entities/dummy.order.entity';
 
 @Module({
   imports: [
@@ -40,11 +42,13 @@ import { VendorWallet } from 'src/entities/vendor.wallet.entity';
       Vendor,
       Customer,
       Operator,
+      DummyOrder,
       RiderWallet,
       RiderReview,
       RiderDocument,
       AdminActivity,
       Complaint,
+      VendorLocation,
       VendorWallet,
       SMSProviders,
       CommissionAndFee,

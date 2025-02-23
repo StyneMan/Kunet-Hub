@@ -32,6 +32,11 @@ export class ProductsController {
     return await this.productService.findProducts(page, limit, type);
   }
 
+  @Get('list')
+  async productList() {
+    return await this.productService.productList();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('create')
   @UsePipes(
@@ -80,8 +85,12 @@ export class ProductsController {
       },
     }),
   )
-  async updateProduct(@Req() req: Request, @Body() body: UpdateProductDTO) {
-    return await this.productService.updateProduct(req?.params?.id, body);
+  async updateProduct(@Req() req: any, @Body() body: UpdateProductDTO) {
+    return await this.productService.updateProduct(
+      req?.user?.sub,
+      req?.params?.id,
+      body,
+    );
   }
 
   @Get('vendor/:id/all')
@@ -97,5 +106,58 @@ export class ProductsController {
       limit,
       categoryId,
     );
+  }
+
+  @Get('branch/:id/all')
+  async branchProducts(
+    @Req() req: Request,
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return await this.productService.allByBranch(
+      req.params?.id,
+      page,
+      limit,
+      categoryId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteProduct(@Req() req: any) {
+    return await this.productService.deleteProduct(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @Get('offers/all')
+  async offers(
+    @Req() req: Request,
+    @Query('page') page: number = 1, // Capture the 'page' query param (optional, with default value)
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.productService.allOffers(page, limit);
   }
 }

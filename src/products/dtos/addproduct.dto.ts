@@ -3,10 +3,16 @@ import {
   IsBoolean,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
 } from 'class-validator';
-import { Variation } from 'src/entities/variations.entity';
+import {
+  Addon,
+  Nutrition,
+  ProdVariations,
+  Specification,
+} from 'src/entities/product.entity';
 
 export class AddProductDTO {
   @IsString()
@@ -43,13 +49,25 @@ export class AddProductDTO {
 
   @IsOptional()
   @IsArray()
-  variations?: Variation[];
+  variations?: ProdVariations[];
+
+  @IsOptional()
+  @IsArray()
+  specifications?: Specification[];
+
+  @IsOptional()
+  @IsArray()
+  addons?: Addon[];
 
   @IsNotEmpty()
   @IsString()
-  vendorId: string;
+  vendorLocationId: string;
 
   @IsNotEmpty()
   @IsString()
   categoryId: string;
+
+  @IsOptional()
+  @IsObject()
+  nutrition?: Nutrition;
 }

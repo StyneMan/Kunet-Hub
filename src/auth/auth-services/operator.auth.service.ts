@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { comparePasswords, encodePassword } from 'src/utils/bcrypt';
 import { generateOTP } from 'src/utils/otp_generator';
@@ -8,18 +8,20 @@ import {
   passwordEmailContent,
   verificationEmailContent,
 } from 'src/utils/email';
-import { OTPPayloadDto } from 'src/otp/dto/otp.dto';
 import { LoginCustomerDTO } from 'src/customer/dtos/logincustomer.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { CreateOperatorDTO } from 'src/operator/dtos/createoperator.dto';
 import { OperatorService } from 'src/operator/operator.service';
 import { OperatorOTP } from 'src/entities/otp.operator.entity';
 import { SendOTPDTO } from 'src/commons/dtos/sendotp.dto';
 import { VerifyOTPDTO } from 'src/commons/dtos/verifyotp.dto';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { OTPType } from 'src/enums/otp.type.enum';
+import { LoginPhoneDTO } from 'src/customer/dtos/loginphone.dto';
+import { VerifyLoginPhoneDTO } from 'src/customer/dtos/verify.login.phone.dto';
+import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { SmsService } from 'src/sms/sms.service';
 
 @Injectable()
 export class OperatorAuthService {
@@ -28,6 +30,9 @@ export class OperatorAuthService {
     private readonly mailerService: MailerService,
     @InjectRepository(OperatorOTP)
     private otpRepository: Repository<OperatorOTP>,
+    @InjectRepository(SMSProviders)
+    private readonly smsRepository: Repository<SMSProviders>,
+    private smsService: SmsService,
     private jwtService: JwtService,
   ) {}
 
@@ -70,10 +75,10 @@ export class OperatorAuthService {
       );
     }
 
-    console.log('LJSK::: ', userData);
+    // console.log('LJSK::: ', userData);
 
     // Send OTP Code here
-    const otpCode = generateOTP();
+    const otpCode = generateOTP(4);
     console.log(otpCode);
 
     const emailSent = await this.mailerService.sendMail({
@@ -116,6 +121,92 @@ export class OperatorAuthService {
     } else {
       return {
         message: 'Failed to send OTP email',
+      };
+    }
+  }
+
+  async sendOTPPhone(payload: LoginPhoneDTO) {
+    if (!payload) {
+      throw new HttpException(
+        {
+          message: 'Payload not provided !!!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const userData = await this.operatorService.findOperatorByPhone(
+      payload?.phone_number,
+    );
+    if (!userData) {
+      throw new HttpException(
+        {
+          message: 'Phone number is not recognized!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Send OTP Code here
+    const otpCode = generateOTP(4);
+    console.log(otpCode);
+
+    if (payload?.phone_number) {
+      const defaultSMSProvider = await this.smsRepository.findOne({
+        where: { is_default: true },
+      });
+      if (!defaultSMSProvider) {
+        throw new HttpException(
+          'No default SMS provider found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      try {
+        await this.smsService.sendOTP({
+          providerEntity: defaultSMSProvider,
+          message: `Use the One Time Password (OTP) code below ${otpCode}`,
+          phoneNumber: payload?.intl_phone_number,
+        });
+      } catch (error) {
+        console.log(error);
+        throw new HttpException(
+          `Error occurred sending otp ${error}`,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      const currentUserOTP = await this.otpRepository.findOne({
+        where: { user: userData },
+      });
+      if (currentUserOTP) {
+        // OTP Already exists for this user so update it here
+        await this.otpRepository.update(
+          { user: userData },
+          {
+            code: otpCode,
+            expired: false,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000),
+            updated_at: new Date(),
+          },
+        );
+      } else {
+        // No OTP so add new
+        const newOTP = this.otpRepository.create({
+          code: otpCode,
+          user: userData,
+          expired: false,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000),
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+        await this.otpRepository.save(newOTP);
+      }
+
+      return {
+        message: 'OTP code sent successfully',
       };
     }
   }
@@ -275,6 +366,134 @@ export class OperatorAuthService {
         HttpStatus.BAD_REQUEST,
       );
     }
+  }
+
+  async loginPhone(loginUserDTO: LoginPhoneDTO) {
+    console.log('User Payload from Client :: ', loginUserDTO);
+    if (!loginUserDTO) {
+      throw new HttpException('Payload not provided !!!', HttpStatus.FORBIDDEN);
+    }
+    const userDB = await this.operatorService.findOperatorByPhone(
+      loginUserDTO?.phone_number?.trim(),
+    );
+    console.log(userDB);
+
+    if (!userDB) {
+      throw new HttpException(
+        {
+          message: 'Phone number not recognized',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.DELETED) {
+      throw new HttpException(
+        {
+          message: 'Account not recognized',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (userDB?.status === UserStatus.SUSPENDED) {
+      throw new HttpException(
+        {
+          message: 'Account currently on hold',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // send otp to phone
+    return await this.sendOTPPhone({
+      phone_number: loginUserDTO.phone_number,
+      intl_phone_number: loginUserDTO.intl_phone_number,
+    });
+  }
+
+  async verifyPhoneLoginOTP(reqPayload: VerifyLoginPhoneDTO) {
+    console.log('VERIGY PHONE PAYLOAD ::: ', reqPayload);
+
+    const userDb = await this.operatorService.findOperatorByPhone(
+      reqPayload?.phone_number,
+    );
+    if (!userDb) {
+      throw new HttpException(
+        {
+          message: 'User record not found',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const otpDb = await this.otpRepository.findOne({
+      where: { user: { id: userDb?.id } },
+    });
+
+    if (!otpDb) {
+      throw new HttpException(
+        {
+          message: 'OTP data not found',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now compare this otp code and the one saved to the database
+    if (otpDb?.code !== reqPayload.code) {
+      throw new HttpException(
+        {
+          message: 'OTP code not valid',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (otpDb.expired || new Date() > otpDb.expires_at) {
+      // Mark OTP as expired in the database for consistency
+      otpDb.expired = true;
+      await this.otpRepository.save(otpDb);
+
+      throw new HttpException(
+        {
+          message: 'OTP code has expired',
+          status: HttpStatus.BAD_REQUEST,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // await this.otpService.removeOtp(otpDb?.id);
+    await this.otpRepository.delete({ id: otpDb?.id });
+    // Now set user's email_verified to true
+    await this.operatorService.updateOperator(userDb?.email_address, {
+      status: UserStatus.ACTIVE,
+      last_login: userDb?.next_login,
+      next_login: new Date(),
+    });
+
+    const usere = await this.operatorService.findOperatorByPhone(
+      reqPayload?.phone_number,
+    );
+
+    const { password, ...usr } = usere;
+    const payload = {
+      sub: userDb?.email_address,
+      username: userDb?.first_name,
+    };
+
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+      message: 'Logged in successfully',
+      user: usr,
+    };
   }
 
   async sendPasswordResetEmail(email_address: string) {

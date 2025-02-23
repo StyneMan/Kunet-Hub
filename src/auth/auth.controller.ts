@@ -403,6 +403,31 @@ export class AuthController {
     return this.authService.loginOperator(body);
   }
 
+  @Post('operator/login/phone')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async loginOperatorPhone(@Body() body: LoginPhoneDTO) {
+    return this.authService.loginOperatorPhone(body);
+  }
+
   @Post('operator/sendOTP')
   @UsePipes(
     new ValidationPipe({
@@ -451,6 +476,31 @@ export class AuthController {
   )
   async verifyOTPOperator(@Body() payload: VerifyOTPDTO) {
     return this.authService.validateVerifyOTPOperator(payload);
+  }
+
+  @Post('operator/phone/verifyOTP')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async verifyPhoneOTPOperator(@Body() payload: VerifyLoginPhoneDTO) {
+    return this.authService.verifyOperatorPhoneLoginOTP(payload);
   }
 
   @Post('operator/forgotPassword')

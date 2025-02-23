@@ -8,7 +8,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { Cart } from './cart.entity';
-import { Product } from './product.entity';
+import { Addon, Product, ProdVariations } from './product.entity';
 import SelectionItemI from 'src/interfaces/selection.item';
 import { Exclude } from 'class-transformer';
 
@@ -36,7 +36,13 @@ export class CartItem {
   name: string;
 
   @Column({ type: 'json', nullable: true })
-  selections?: SelectionItemI[]; // Adjust to your selections structure
+  extras?: SelectionItemI[];
+
+  @Column({ type: 'json', nullable: true })
+  addOns?: Addon[];
+
+  @Column({ type: 'json', nullable: true })
+  variations?: ProdVariations[];
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

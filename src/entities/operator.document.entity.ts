@@ -2,8 +2,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
-  // OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Operator } from './operator.entity';
@@ -22,7 +21,7 @@ export class OperatorDocument {
   @Column({ nullable: true })
   back_view: string;
 
-  @OneToOne(() => Operator)
+  @ManyToOne(() => Operator)
   @JoinColumn()
   owner: Operator;
 
