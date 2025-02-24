@@ -23,5 +23,6 @@ import { ChatGateway } from './chat.gateway';
     SocketModule,
   ],
   providers: [ChatService, ChatGateway],
+  exports: [ChatGateway],
 })
 export class ChatModule {}

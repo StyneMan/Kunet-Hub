@@ -14,7 +14,7 @@ import { VerifyAccountDTO } from './dtos/verifyaccount.dto';
 import { VendorPayoutRequest } from 'src/entities/vendor.payout.request.entity';
 import { RiderPayoutRequest } from 'src/entities/rider.payout.request.entity';
 import { RequestPayoutDTO } from './dtos/requestpayout.dto';
-import { OperatorType } from 'src/enums/operator.type.enum';
+import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 import { MailerService } from '@nestjs-modules/mailer';
 import { OperatorOTP } from 'src/entities/otp.operator.entity';
 import { RiderWallet } from 'src/entities/rider.wallet.entity';
@@ -331,6 +331,140 @@ export class BankService {
       totalPages: Math.ceil(total / limit),
       totalItems: total,
       perPage: limit,
+    };
+  }
+
+  async updateVendorBank(
+    email_address: string,
+    bankId: string,
+    payload: UpdateBankDTO,
+  ) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Operator not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      operator.operator_type !== OperatorType.OWNER &&
+      operator.operator_role !== OperatorRole.SUPER
+    ) {
+      throw new HttpException(
+        {
+          message: 'You are forbidden to perform this action!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const bank = await this.vendorBankRepository.findOne({
+      where: { id: bankId },
+    });
+
+    if (!bank) {
+      throw new HttpException(
+        {
+          message: 'Bank not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    bank.account_name = payload?.accountName ?? bank.account_name;
+    bank.account_number = payload?.accountNumber ?? bank.account_number;
+    bank.bank_code = payload?.bankCode ?? bank.bank_code;
+    bank.bank_name = payload?.bankName ?? bank.bank_name;
+    bank.updated_at = new Date();
+
+    const updatedBank = await this.vendorBankRepository.save(bank);
+    this.socketGateway.sendEvent(
+      operator.id,
+      UserType.OPERATOR,
+      'refresh-banks',
+      {
+        message: 'Bank account added ',
+      },
+    );
+
+    this.socketGateway.sendVendorEvent(
+      operator?.vendor?.id,
+      'refresh-accounts',
+      { message: 'Refetch bank accounts' },
+    );
+
+    return {
+      message: 'Updated bank successfully',
+      data: updatedBank,
+    };
+  }
+
+  async deleteVendorBank(email_address: string, bankId: string) {
+    const operator = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!operator) {
+      throw new HttpException(
+        {
+          message: 'Operator not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      operator.operator_type !== OperatorType.OWNER &&
+      operator.operator_role !== OperatorRole.SUPER
+    ) {
+      throw new HttpException(
+        {
+          message: 'You are forbidden to perform this action!',
+          status: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const bank = await this.vendorBankRepository.findOne({
+      where: { id: bankId },
+    });
+
+    if (!bank) {
+      throw new HttpException(
+        {
+          message: 'Bank not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    await this.vendorBankRepository.delete({ id: bankId });
+    this.socketGateway.sendEvent(operator.id, UserType.RIDER, 'refresh-banks', {
+      message: 'Bank account added ',
+    });
+
+    this.socketGateway.sendVendorEvent(
+      operator?.vendor?.id,
+      'refresh-accounts',
+      { message: 'Refetch bank accounts' },
+    );
+
+    return {
+      message: 'Bank account deleted successfully',
     };
   }
 

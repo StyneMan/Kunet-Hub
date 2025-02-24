@@ -113,6 +113,73 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('vendor/accounts/:id/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateVendorBankAccount(
+    @Req() req: any,
+    @Body() payload: UpdateBankDTO,
+  ) {
+    try {
+      return this.bankService.updateVendorBank(
+        req?.user?.sub,
+        req?.params?.id,
+        payload,
+      );
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('vendor/accounts/:id/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteVendorBankAccount(@Req() req: any) {
+    try {
+      return this.bankService.deleteVendorBank(req?.user?.sub, req?.params?.id);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('rider/add')
   @UsePipes(
     new ValidationPipe({

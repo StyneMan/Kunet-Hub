@@ -13,6 +13,7 @@ import { UpdateOperatorDTO } from './dtos/updateoperator.dto';
 import { Vendor } from 'src/entities/vendor.entity';
 import { UserStatus } from 'src/enums/user.status.enum';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Injectable()
 export class OperatorService {
@@ -359,6 +360,25 @@ export class OperatorService {
         message: error?.response?.data?.message || 'An error occurred!',
       };
     }
+  }
+
+  async updateFCMToken(email_address: string, payload: UpdateFCMTokenDTO) {
+    const user = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+    });
+    if (!user)
+      throw new HttpException('Customer not found.', HttpStatus.NOT_FOUND);
+
+    user.fcmToken = payload?.token ?? user.fcmToken;
+    const updatedUser = await this.operatorRepository.save(user);
+
+    const { password, ...others } = updatedUser;
+    console.log('REMOVED PASWORD ::: ', password);
+
+    return {
+      message: 'FCM token updated successfully',
+      user: others,
+    };
   }
 
   async updateOperatorById(id: string, payload: UpdateOperatorDTO) {

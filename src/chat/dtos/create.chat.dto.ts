@@ -17,8 +17,4 @@ export class FindOrCcreateChatDTO {
   @IsNotEmpty()
   @IsEnum(ChatMemberType)
   receiverType: ChatMemberType;
-
-  @IsNotEmpty()
-  @IsString()
-  message: string;
 }

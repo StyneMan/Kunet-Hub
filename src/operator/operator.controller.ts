@@ -17,6 +17,7 @@ import { CreateOperatorDTO } from './dtos/createoperator.dto';
 import { ValidationError } from 'class-validator';
 import { UpdateOperatorDTO } from './dtos/updateoperator.dto';
 import { Request } from 'express';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Controller('operator')
 export class OperatorController {
@@ -55,6 +56,32 @@ export class OperatorController {
   )
   async addStaff(@Req() req: any, @Body() body: CreateOperatorDTO) {
     return await this.operatorService.createOperator(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('fcm/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateFCMToken(@Req() req: any, @Body() body: UpdateFCMTokenDTO) {
+    return await this.operatorService.updateFCMToken(req?.user?.sub, body);
   }
 
   @UseGuards(JwtAuthGuard)

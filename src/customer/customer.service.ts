@@ -52,6 +52,7 @@ import { OrderStatus } from 'src/enums/order.status.enum';
 import { OrderType } from 'src/enums/order.type.enum';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { stringify } from 'flatted';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 // import { NotificationGateway } from 'src/notification/notification.gateway';
 
 @Injectable()
@@ -378,6 +379,25 @@ export class CustomerService {
         message: error?.response?.data?.message || 'An error occurred!',
       };
     }
+  }
+
+  async updateFCMToken(email_address: string, payload: UpdateFCMTokenDTO) {
+    const user = await this.customerRepository.findOne({
+      where: { email_address: email_address },
+    });
+    if (!user)
+      throw new HttpException('Customer not found.', HttpStatus.NOT_FOUND);
+
+    user.fcmToken = payload?.token ?? user.fcmToken;
+    const updatedUser = await this.customerRepository.save(user);
+
+    const { password, ...others } = updatedUser;
+    console.log('REMOVED PASWORD ::: ', password);
+
+    return {
+      message: 'FCM token updated successfully',
+      user: others,
+    };
   }
 
   async setWalletPin(email_address: string, payload: UpdateWalletPINDTO) {
@@ -1820,13 +1840,11 @@ export class CustomerService {
         .createQueryBuilder('order') // Alias for the table
         .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
-        })
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
         })
         .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
         .skip(skip) // Skip the records
@@ -1841,9 +1859,6 @@ export class CustomerService {
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
-        }) // Filter by order status
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
         })
         .getCount(), // Count total records for pagination
     ]);

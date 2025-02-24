@@ -24,6 +24,7 @@ import { Request } from 'express';
 import { UpdateCartDTO } from './dtos/updatecart.dto';
 import { ApplyCouponCodeDTO } from './dtos/apply.couon.code.dto';
 import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Controller('customer')
 export class CustomerController {
@@ -62,6 +63,32 @@ export class CustomerController {
   )
   async addCustomer(@Req() req: any, @Body() body: CreateCustomerDTO) {
     return await this.customerService.addCustomer(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('fcm/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateFCMToken(@Req() req: any, @Body() body: UpdateFCMTokenDTO) {
+    return await this.customerService.updateFCMToken(req?.user?.sub, body);
   }
 
   @UseGuards(JwtAuthGuard)

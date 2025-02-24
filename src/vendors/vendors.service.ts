@@ -51,6 +51,8 @@ import { AddVendorLocationDTO } from './dtos/add.vendor.location.dto';
 import { UpdateVendorLocationDTO } from './dtos/update.vendor.location.dto';
 import { CustomerWallet } from 'src/entities/customer.wallet.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
+import { NotificationService } from 'src/notification/notification.service';
+import { PushNotificationType } from 'src/enums/push.notification.type.enum';
 
 @Injectable()
 export class VendorsService {
@@ -91,6 +93,7 @@ export class VendorsService {
     private readonly smsRepository: Repository<SMSProviders>,
     @InjectRepository(CommissionAndFee)
     private commissionAndFeeRepository: Repository<CommissionAndFee>,
+    private readonly notificationservice: NotificationService,
   ) {}
 
   async findVendors(page: number, limit: number, vendor_type?: VendorType) {
@@ -1920,6 +1923,10 @@ export class VendorsService {
     coupon.discount_type = payload?.discountType ?? coupon.discount_type;
     coupon.expires_at = payload?.expiresAt ?? coupon.expires_at;
     coupon.name = payload?.name ?? coupon.name;
+    coupon.coupon_status = payload?.isEnabled
+      ? CouponStatus.ACTIVE
+      : coupon.coupon_status;
+    coupon.image_url = payload?.imageUrl ?? coupon.image_url;
     coupon.updated_at = new Date();
 
     const updatedCoupon = await this.couponRepository.save(coupon);
@@ -2204,7 +2211,7 @@ export class VendorsService {
 
     const order = await this.orderRepository.findOne({
       where: { id: payload?.orderId },
-      relations: ['vendor'],
+      relations: ['vendor', 'customer'],
     });
 
     if (!order) {
@@ -2250,6 +2257,15 @@ export class VendorsService {
           message: 'order accepted by you',
         },
       );
+
+      this.socketGateway.sendEvent(
+        order?.customer?.id,
+        UserType.CUSTOMER,
+        'refresh-orders',
+        {
+          message: 'order accepted by vendor',
+        },
+      );
       // Notify the vendor that rider is on his way
       this.socketGateway.sendVendorNotification(order?.vendor?.id, {
         message: 'Ensure order is ready. Do not keep rider waiting',
@@ -2275,6 +2291,17 @@ export class VendorsService {
             message: `Use the access code below to verify rider. ${order.access_code}`,
             phoneNumber: vendorLocation?.intl_phone_format,
           });
+
+          await this.notificationservice.sendPushNotification(
+            order?.customer?.fcmToken,
+            {
+              message:
+                'Your order has been accepted and is currently been processed',
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Order Accepted',
+              itemId: order?.id,
+            },
+          );
         } catch (error) {
           console.log(error);
           throw new HttpException(

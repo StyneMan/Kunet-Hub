@@ -37,6 +37,9 @@ export class Operator {
   @Column({ nullable: false })
   password: string;
 
+  @Column({ nullable: true })
+  fcmToken?: string;
+
   @Column({ default: false })
   is_email_verified: boolean;
 

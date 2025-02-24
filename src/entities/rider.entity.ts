@@ -36,6 +36,9 @@ export class Rider {
   email_address: string;
 
   @Column({ nullable: true })
+  fcmToken?: string;
+
+  @Column({ nullable: true })
   password: string;
 
   @Column({ default: false })

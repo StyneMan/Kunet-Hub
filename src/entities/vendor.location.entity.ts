@@ -39,6 +39,9 @@ export class VendorLocation {
   })
   lng: number;
 
+  @Column({ nullable: true })
+  fcmToken?: string;
+
   @ManyToOne(() => Vendor, (vendor) => vendor.locations, {
     onDelete: 'CASCADE',
   })

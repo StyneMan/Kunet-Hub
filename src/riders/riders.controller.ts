@@ -23,6 +23,7 @@ import {
   RiderArrivedCustomerDTO,
   RiderArrivedVendorDTO,
 } from './dtos/rider.arrived.dto';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Controller('rider')
 export class RidersController {
@@ -99,6 +100,32 @@ export class RidersController {
   )
   async addRider(@Req() req: any, @Body() body: CreateRiderDTO) {
     return await this.riderService.createRider(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('fcm/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateFCMToken(@Req() req: any, @Body() body: UpdateFCMTokenDTO) {
+    return await this.riderService.updateFCMToken(req?.user?.sub, body);
   }
 
   @UseGuards(JwtAuthGuard)

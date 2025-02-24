@@ -28,6 +28,7 @@ import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { VendorDocument } from 'src/entities/vendor.document.entity';
 import { CustomerWallet } from 'src/entities/customer.wallet.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { SystemTransactions } from 'src/entities/system.transactions.entity';
     PlivoService,
     TwilioService,
     BroadnetService,
+    NotificationService,
   ],
   controllers: [VendorsController],
 })

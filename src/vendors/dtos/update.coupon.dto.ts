@@ -17,6 +17,10 @@ export class UpdateCouponDTO {
   @IsNotEmpty()
   vendorId: string;
 
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
   @IsOptional()
   @IsNumber()
   discount?: number;

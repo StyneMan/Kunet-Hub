@@ -48,6 +48,7 @@ import { ReporteeType } from 'src/enums/reportee.type.enum';
 import { CompleteRiderKYCDTO } from './dtos/rider.kyc.dto';
 import { SmsService } from 'src/sms/sms.service';
 import { SMSProviders } from 'src/entities/sms.provider.entity';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Injectable()
 export class RidersService {
@@ -344,6 +345,25 @@ export class RidersService {
         message: error?.response?.data?.message || 'An error occurred!',
       };
     }
+  }
+
+  async updateFCMToken(email_address: string, payload: UpdateFCMTokenDTO) {
+    const user = await this.riderRepository.findOne({
+      where: { email_address: email_address },
+    });
+    if (!user)
+      throw new HttpException('Customer not found.', HttpStatus.NOT_FOUND);
+
+    user.fcmToken = payload?.token ?? user.fcmToken;
+    const updatedUser = await this.riderRepository.save(user);
+
+    const { password, ...others } = updatedUser;
+    console.log('REMOVED PASWORD ::: ', password);
+
+    return {
+      message: 'FCM token updated successfully',
+      user: others,
+    };
   }
 
   async completeKYC(email_address: string, payload: CompleteRiderKYCDTO) {
