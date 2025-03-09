@@ -130,6 +130,7 @@ export class ProductsService {
       discount_amount: payload?.discount_amount,
       discount_percent: payload?.discount_percent,
       images: payload?.images,
+      ingredients: payload?.ingredients,
       is_variable: payload?.is_variable,
       name: payload?.name,
       sale_amount: payload?.sale_amount,

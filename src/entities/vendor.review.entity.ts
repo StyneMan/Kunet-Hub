@@ -3,12 +3,11 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
-  OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Rider } from './rider.entity';
 import { Customer } from './customer.entity';
-import { Vendor } from './vendor.entity';
+import { VendorLocation } from './vendor.location.entity';
 
 @Entity({ name: 'vendor_reviews' })
 export class VendorReview {
@@ -21,15 +20,15 @@ export class VendorReview {
   @Column({ nullable: false })
   rating: number;
 
-  @ManyToOne(() => Vendor)
+  @ManyToOne(() => VendorLocation)
   @JoinColumn()
-  vendor: Vendor;
+  vendor_location: VendorLocation;
 
-  @OneToOne(() => Customer)
+  @ManyToOne(() => Customer)
   @JoinColumn()
   customer: Customer;
 
-  @OneToOne(() => Rider)
+  @ManyToOne(() => Rider)
   @JoinColumn()
   rider: Rider;
 

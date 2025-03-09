@@ -31,6 +31,11 @@ import { Cart } from 'src/entities/cart.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { DummyOrder } from 'src/entities/dummy.order.entity';
+import { NotificationService } from 'src/notification/notification.service';
+import { AdminWallet } from 'src/entities/admin.wallet.entity';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { VendorReview } from 'src/entities/vendor.review.entity';
 
 @Module({
   imports: [
@@ -47,7 +52,10 @@ import { DummyOrder } from 'src/entities/dummy.order.entity';
       DummyOrder,
       RiderReview,
       RiderWallet,
+      AdminWallet,
+      VendorReview,
       VendorWallet,
+      PendingReviews,
       VendorLocation,
       PaymentGateway,
       RiderTransactions,
@@ -55,6 +63,7 @@ import { DummyOrder } from 'src/entities/dummy.order.entity';
       SystemTransactions,
       RiderPayoutRequest,
       VendorPayoutRequest,
+      VendorNotification,
       CustomerTransactions,
       CommissionAndFee,
       CustomerWallet,
@@ -64,6 +73,12 @@ import { DummyOrder } from 'src/entities/dummy.order.entity';
     SocketModule,
   ],
   controllers: [BankController],
-  providers: [BankService, FlutterwaveService, PaystackService, OrdersService],
+  providers: [
+    BankService,
+    FlutterwaveService,
+    PaystackService,
+    OrdersService,
+    NotificationService,
+  ],
 })
 export class BankModule {}

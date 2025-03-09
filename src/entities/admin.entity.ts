@@ -22,6 +22,9 @@ export class Admin {
   @Column({ nullable: true })
   last_name: string;
 
+  @Column({ nullable: true })
+  fcmToken?: string;
+
   @Column({ nullable: true, default: '' })
   photo_url?: string;
 

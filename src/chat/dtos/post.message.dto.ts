@@ -3,10 +3,6 @@ import { IsNotEmpty, IsString } from 'class-validator';
 export class PostMessageDTO {
   @IsNotEmpty()
   @IsString()
-  chatId: string;
-
-  @IsNotEmpty()
-  @IsString()
   senderId: string;
 
   @IsNotEmpty()

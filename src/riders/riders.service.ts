@@ -42,13 +42,20 @@ import { TransactionType } from 'src/enums/transaction.type.enum';
 import generateRandomCoupon from 'src/utils/coupon_generator';
 import { OrdersService } from 'src/orders/orders.service';
 import { OrderStatus } from 'src/enums/order.status.enum';
-import { Complaint } from 'src/entities/complaint.entity';
-import { LogComplaintDTO } from './dtos/log.complaint.dto';
-import { ReporteeType } from 'src/enums/reportee.type.enum';
+// import { LogComplaintDTO } from './dtos/log.complaint.dto';
+// import { ReporteeType } from 'src/enums/reportee.type.enum';
 import { CompleteRiderKYCDTO } from './dtos/rider.kyc.dto';
 import { SmsService } from 'src/sms/sms.service';
 import { SMSProviders } from 'src/entities/sms.provider.entity';
 import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { PushNotificationType } from 'src/enums/push.notification.type.enum';
+import { NotificationService } from 'src/notification/notification.service';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { VendorNotificationType } from 'src/enums/vendor.notification.type.enum';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { RevieweeType } from 'src/enums/reviewer.type.enum';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class RidersService {
@@ -59,6 +66,8 @@ export class RidersService {
     private readonly adminRepository: Repository<Admin>,
     @InjectRepository(Vendor)
     private readonly vendorRepository: Repository<Vendor>,
+    @InjectRepository(VendorLocation)
+    private readonly vendorLocationRepository: Repository<VendorLocation>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
     @InjectRepository(Operator)
@@ -77,8 +86,8 @@ export class RidersService {
     private readonly reviewRepository: Repository<RiderReview>,
     @InjectRepository(CommissionAndFee)
     private commissionAndFeeRepository: Repository<CommissionAndFee>,
-    @InjectRepository(Complaint)
-    private complaintRepository: Repository<Complaint>,
+    @InjectRepository(PendingReviews)
+    private pendingReviewRepository: Repository<PendingReviews>,
     private zoneService: ZonesService,
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
@@ -86,6 +95,9 @@ export class RidersService {
     private smsService: SmsService,
     @InjectRepository(SMSProviders)
     private readonly smsRepository: Repository<SMSProviders>,
+    private readonly notificationservice: NotificationService,
+    @InjectRepository(VendorNotification)
+    private vendorNotificationRepository: Repository<VendorNotification>,
   ) {}
 
   findRiders() {
@@ -352,7 +364,7 @@ export class RidersService {
       where: { email_address: email_address },
     });
     if (!user)
-      throw new HttpException('Customer not found.', HttpStatus.NOT_FOUND);
+      throw new HttpException('Rider not found.', HttpStatus.NOT_FOUND);
 
     user.fcmToken = payload?.token ?? user.fcmToken;
     const updatedUser = await this.riderRepository.save(user);
@@ -361,7 +373,7 @@ export class RidersService {
     console.log('REMOVED PASWORD ::: ', password);
 
     return {
-      message: 'FCM token updated successfully',
+      message: 'FCM token updated',
       user: others,
     };
   }
@@ -701,6 +713,7 @@ export class RidersService {
       this.orderRepository
         .createQueryBuilder('orders') // Alias for the table
         .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
         .leftJoinAndSelect('vendor.categories', 'categories')
@@ -714,6 +727,7 @@ export class RidersService {
       this.orderRepository
         .createQueryBuilder('orders') // Alias for the table
         .leftJoin('orders.customer', 'customer') // Join the related vendor table
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
         .innerJoinAndSelect('vendor.categories', 'categories')
@@ -760,6 +774,7 @@ export class RidersService {
       this.orderRepository
         .createQueryBuilder('orders') // Alias for the table
         .leftJoinAndSelect('orders.customer', 'customer')
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location')
         .leftJoinAndSelect('orders.vendor', 'vendor')
         .leftJoinAndSelect('orders.rider', 'rider')
         .leftJoinAndSelect('vendor.categories', 'categories')
@@ -776,6 +791,7 @@ export class RidersService {
       this.orderRepository
         .createQueryBuilder('orders')
         .leftJoin('orders.customer', 'customer')
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location')
         .leftJoinAndSelect('orders.vendor', 'vendor')
         .leftJoinAndSelect('orders.rider', 'rider')
         .innerJoinAndSelect('vendor.categories', 'categories')
@@ -1005,6 +1021,56 @@ export class RidersService {
     };
   }
 
+  async riderWithdrawals(page: number, limit: number, riderId: string) {
+    const rider = await this.riderRepository.findOne({
+      where: { id: riderId },
+    });
+
+    if (!rider) {
+      throw new HttpException(
+        {
+          message: 'Rider not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate records to skip
+    const excludedStatuses = [TransactionType.CREDIT]; // Exclude credit transactions
+
+    const [data, total] = await Promise.all([
+      this.transactionRepository
+        .createQueryBuilder('trans') // Alias for the table
+        .leftJoinAndSelect('trans.rider', 'rider')
+        .where('rider.id = :riderId', { riderId }) // Filter by rider ID
+        .andWhere('trans.transaction_type NOT IN (:...excludedStatuses)', {
+          excludedStatuses,
+        }) // Exclude statuses
+        .orderBy('trans.created_at', 'DESC') // Sort by latest
+        .skip(skip) // Pagination
+        .take(limit) // Limit records
+        .getMany(), // Execute query
+
+      this.transactionRepository
+        .createQueryBuilder('trans')
+        .leftJoinAndSelect('trans.rider', 'rider')
+        .where('rider.id = :riderId', { riderId }) // Filter by rider ID
+        .andWhere('trans.transaction_type NOT IN (:...excludedStatuses)', {
+          excludedStatuses,
+        }) // Exclude statuses
+        .getCount(), // Count total records
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
   async findAllDocuments(page: number, limit: number) {
     const skip = (page - 1) * limit; // Calculate the number of records to skip
 
@@ -1079,59 +1145,40 @@ export class RidersService {
 
       newReview.customer = customer;
       newReview.rider = rider;
-
       const result = await this.reviewRepository.save(newReview);
-      return {
-        message: 'Rider successfully reviewed',
-        data: result,
-      };
-    } else if (payload.user_type === UserType.OPERATOR) {
-      // Now check if this customer already has a review for this rider
-      const matchedReview = await this.reviewRepository.findOne({
+
+      // Now recompute rider rating here
+      // first find all vendor reviews andd then do the math.
+      const reviews = await this.reviewRepository.find({
+        where: { rider: { id: rider?.id } },
+      });
+
+      let ratings = 0;
+      for (let index = 0; index < reviews.length; index++) {
+        const element = reviews[index];
+        ratings = ratings + element?.rating;
+      }
+
+      // Now update vendor rating here
+      const rater = ratings / reviews?.length;
+      rider.rating = rater;
+
+      await this.riderRepository.save(rider);
+
+      // Now clear from pending review if any
+      const pendingFound = await this.pendingReviewRepository.findOne({
         where: {
-          vendor: { id: payload.reviewer_id },
+          reviewee_type: RevieweeType.RIDER,
+          customer: { id: customer?.id },
+          reviewee_id: rider?.id,
         },
       });
 
-      if (matchedReview) {
-        throw new HttpException(
-          {
-            message: 'You already have a reviewed',
-            status: HttpStatus.FORBIDDEN,
-          },
-          HttpStatus.FORBIDDEN,
-        );
+      if (pendingFound) {
+        // Exists. Now delete it here
+        await this.pendingReviewRepository.delete({ id: pendingFound?.id });
       }
 
-      // Now get this customer info
-      const vendor = await this.vendorRepository.findOne({
-        where: {
-          id: payload?.reviewer_id,
-        },
-      });
-
-      if (!vendor) {
-        throw new HttpException(
-          {
-            message: 'Vendor not found',
-            status: HttpStatus.NOT_FOUND,
-          },
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      // Now review this rider
-      const newReview = this.reviewRepository.create({
-        message: payload?.message,
-        rating: payload?.rating,
-        created_at: new Date(),
-        updated_at: new Date(),
-      });
-
-      newReview.vendor = vendor;
-      newReview.rider = rider;
-
-      const result = await this.reviewRepository.save(newReview);
       return {
         message: 'Rider successfully reviewed',
         data: result,
@@ -1213,14 +1260,6 @@ export class RidersService {
       throw new HttpException('Rider not found', HttpStatus.NOT_FOUND);
     }
 
-    const vendor = await this.vendorRepository.findOne({
-      where: { id: payload?.vendorId },
-    });
-
-    if (!vendor) {
-      throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
-    }
-
     const order = await this.orderRepository.findOne({
       where: { id: payload?.orderId },
     });
@@ -1232,27 +1271,71 @@ export class RidersService {
     // Now updadte the order status
     order.order_status = OrderStatus.RIDER_ARRIVED_VENDOR;
     order.updated_at = new Date();
-
     const updatedOrder = await this.orderRepository.save(order);
 
-    // Now Notify this vendor that the rider has arrivedd to pickup this order
-    this.socketGateway.sendVendorNotification(vendor?.id, {
-      order: order,
-      message: 'Dispatch rider has arrived',
-    });
+    if (order.order_type !== OrderType.PARCEL_ORDER) {
+      const vendorLocation = await this.vendorLocationRepository.findOne({
+        where: { id: payload?.vendorLocationId },
+        relations: ['vendor'],
+      });
 
-    // Now Notify this vendor that the rider has arrivedd to pickup this order
-    this.socketGateway.sendVendorEvent(vendor?.id, 'refresh-orders', {
-      order: order,
-      message: 'Dispatch rider has arrived',
-    });
+      if (!vendorLocation) {
+        throw new HttpException('Vendor not found', HttpStatus.NOT_FOUND);
+      }
 
-    // Also send a notification to this vendor's phone
+      // Now Notify this vendor that the rider has arrivedd to pickup this order
+      this.socketGateway.sendVendorNotification(vendorLocation?.vendor?.id, {
+        order: order,
+        message: 'Dispatch rider has arrived',
+      });
 
-    return {
-      message: 'Arrival status updated successfully',
-      order: updatedOrder,
-    };
+      // Now Notify this vendor that the rider has arrivedd to pickup this order
+      this.socketGateway.sendVendorEvent(
+        vendorLocation?.vendor?.id,
+        'refresh-orders',
+        {
+          order: order,
+          message: 'Dispatch rider has arrived',
+        },
+      );
+
+      try {
+        // Send push notification to vendor
+        await this.notificationservice.sendPushNotification(
+          order?.vendor_location?.fcmToken,
+          {
+            message: 'Rider has arrived your location to pickup order.',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Rider Arrived',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.error(error);
+      }
+
+      // Create vendor notification here
+      const vendorNotification = this.vendorNotificationRepository.create({
+        is_read: false,
+        message: `Rider ${rider?.first_name} ${rider?.last_name} has arrived`,
+        notification_type: VendorNotificationType.RIDER_NOTIFICATION,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      vendorNotification.vendor = vendorLocation.vendor;
+
+      await this.vendorNotificationRepository.save(vendorNotification);
+
+      return {
+        message: 'Arrival status updated successfully',
+        order: updatedOrder,
+      };
+    } else {
+      return {
+        message: 'rider has arrived successfully',
+        order: updatedOrder,
+      };
+    }
   }
 
   async setHasArrivedCustomer(
@@ -1316,24 +1399,69 @@ export class RidersService {
       return;
     }
 
-    try {
-      await this.smsService.sendOTP({
-        providerEntity: defaultSMSProvider,
-        message: `Rider has arrived. Use the code ${order?.access_code}`,
-        phoneNumber: customer?.intl_phone_format,
-      });
-    } catch (error) {
-      console.log(error);
-      // throw new HttpException(
-      //   `Error occurred sending otp ${error}`,
-      //   HttpStatus.INTERNAL_SERVER_ERROR,
-      // );
-    }
+    if (order?.order_type === OrderType.PARCEL_ORDER) {
+      try {
+        await this.smsService.sendOTP({
+          providerEntity: defaultSMSProvider,
+          message: `Rider has arrived. Use the code ${order?.access_code}`,
+          phoneNumber: order?.receiver?.phone,
+        });
+      } catch (error) {
+        console.log(error);
+        // throw new HttpException(
+        //   `Error occurred sending otp ${error}`,
+        //   HttpStatus.INTERNAL_SERVER_ERROR,
+        // );
+      }
 
-    return {
-      message: 'Customer notified of your arrival',
-      order: updatedOrder,
-    };
+      try {
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Rider has arrived sender address to drop off item(s).',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Rider Arrived',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.error(error);
+      }
+
+      return {
+        message: 'Receiver notified of your arrival',
+        order: updatedOrder,
+      };
+    } else {
+      try {
+        await this.smsService.sendOTP({
+          providerEntity: defaultSMSProvider,
+          message: `Rider has arrived. Use the code ${order?.access_code}`,
+          phoneNumber: customer?.intl_phone_format,
+        });
+      } catch (error) {
+        console.log(error);
+      }
+
+      try {
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Rider has arrived your address to deliver your order.',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Rider Arrived',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.error(error);
+      }
+
+      return {
+        message: 'Customer notified of your arrival',
+        order: updatedOrder,
+      };
+    }
   }
 
   async acceptOrder(email_address: string, payload: AcceptOrderDTO) {
@@ -1363,14 +1491,78 @@ export class RidersService {
 
     if (order.order_type === OrderType.PARCEL_ORDER) {
       // Notify FastBuy instead
+      order.order_status = OrderStatus.RIDER_ACCEPTED;
+      order.updated_at = new Date();
+      const updatedorder = await this.orderRepository.save(order);
+
+      // Now update rider today's order count
+
+      this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-orders', {
+        message: 'order accepted by you',
+      });
+
+      // Now send access code to rider
+      if (rider.intl_phone_format) {
+        const defaultSMSProvider = await this.smsRepository.findOne({
+          where: { is_default: true },
+        });
+        if (!defaultSMSProvider) {
+          throw new HttpException(
+            'No default SMS provider found',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        try {
+          await this.smsService.sendOTP({
+            providerEntity: defaultSMSProvider,
+            message: `Use the access code below to access order from  Fastbuy Logistics. ${order.access_code}`,
+            phoneNumber: rider?.intl_phone_format,
+          });
+
+          // notify vendor with FCM
+          await this.notificationservice.sendPushNotification(
+            order?.vendor_location?.fcmToken,
+            {
+              message: 'Your order has been assigned and accepted by a rider',
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Rider Accepted Order',
+              itemId: order?.id,
+            },
+          );
+        } catch (error) {
+          console.log(error);
+          throw new HttpException(
+            `Error occurred sending otp ${error}`,
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        return {
+          message: 'Order accepted successfully',
+          order: updatedorder,
+        };
+      }
+
+      // Also send to email
+      await this.mailerService.sendMail({
+        to: email_address,
+        subject: 'Order Access Code',
+        html: `<div>
+        <br/>
+        <h5>Hi ${rider.first_name} ${rider.last_name}</h5>
+        <br/>
+        <p>Use the access code below. Keep it confidential. You will be required to present it to the package sender upon your arrival. </p>
+        <strong>${order.access_code}</strong>
+        </div>`,
+      });
     } else {
       order.order_status = OrderStatus.RIDER_ACCEPTED;
       order.updated_at = new Date();
-
       const updatedorder = await this.orderRepository.save(order);
 
       this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-orders', {
-        message: 'order acceptedby you',
+        message: 'order accepted by you',
       });
       // Notify the vendor that rider is on his way
       this.socketGateway.sendVendorNotification(order?.vendor?.id, {
@@ -1397,6 +1589,26 @@ export class RidersService {
             message: `Use the access code below to access order from vendor. ${order.access_code}`,
             phoneNumber: rider?.intl_phone_format,
           });
+
+          // notify vendor with FCM
+          await this.notificationservice.sendPushNotification(
+            order?.vendor_location?.fcmToken,
+            {
+              message: 'Your order has been assigned and accepted by a rider',
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Rider Accepted Order',
+              itemId: order?.id,
+            },
+          );
+          const noti = this.vendorNotificationRepository.create({
+            message: 'Order has been accepted by rider',
+            is_read: false,
+            notification_type: VendorNotificationType.ORDER_NOTIFICATION,
+            created_at: new Date(),
+          });
+          noti.rider = order.rider;
+          noti.vendor = order?.vendor;
+          await this.vendorNotificationRepository.save(noti);
         } catch (error) {
           console.log(error);
           throw new HttpException(
@@ -1414,7 +1626,7 @@ export class RidersService {
       // Also send to email
       await this.mailerService.sendMail({
         to: email_address,
-        subject: 'Account Password Reset OTP',
+        subject: 'Order Access Code',
         html: `<div>
         <br/>
         <h5>Hi ${rider.first_name} ${rider.last_name}</h5>
@@ -1444,6 +1656,7 @@ export class RidersService {
 
     const order = await this.orderRepository.findOne({
       where: { id: payload?.orderId },
+      relations: ['customer'],
     });
 
     if (!order) {
@@ -1480,7 +1693,7 @@ export class RidersService {
     await this.walletRepository.save(wallet);
 
     // Now create a transaction to this effect here
-    const trans = await this.transactionRepository.create({
+    const trans = this.transactionRepository.create({
       amount: existingFee[0]?.rider_order_cancellation,
       fee: 0,
       transaction_type: TransactionType.WITHDRAWAL,
@@ -1493,6 +1706,10 @@ export class RidersService {
 
     trans.rider = rider;
     await this.transactionRepository.save(trans);
+
+    this.socketGateway.sendEvent(rider.id, UserType.RIDER, 'refresh-orders', {
+      message: 'order accepted by you',
+    });
 
     // Now reassign this order to the next available rider
     await this.orderService.matchOrderToRider(order?.id);
@@ -1543,65 +1760,65 @@ export class RidersService {
     });
   }
 
-  async reportCustomer(email_address: string, payload: LogComplaintDTO) {
-    const rider = await this.riderRepository.findOne({
-      where: { email_address: email_address },
-    });
+  // async reportCustomer(email_address: string, payload: LogComplaintDTO) {
+  //   const rider = await this.riderRepository.findOne({
+  //     where: { email_address: email_address },
+  //   });
 
-    if (!rider) {
-      throw new HttpException('Rider not found', HttpStatus.NOT_FOUND);
-    }
+  //   if (!rider) {
+  //     throw new HttpException('Rider not found', HttpStatus.NOT_FOUND);
+  //   }
 
-    // Now create a complaint
-    const newComplain = await this.complaintRepository.create({
-      first_name: payload?.firstname,
-      last_name: payload?.lastname,
-      message: payload?.message,
-      subject: payload?.subject,
-      reportee_id: payload?.reporteeId,
-      reportee_type: ReporteeType.CUSTOMER,
-      reporter_id: rider?.id,
-      reporter_type: UserType?.RIDER,
-      created_at: new Date(),
-      updated_at: new Date(),
-    });
+  //   // Now create a complaint
+  //   const newComplain = await this.complaintRepository.create({
+  //     first_name: payload?.firstname,
+  //     last_name: payload?.lastname,
+  //     message: payload?.message,
+  //     subject: payload?.subject,
+  //     reportee_id: payload?.reporteeId,
+  //     reportee_type: ReporteeType.CUSTOMER,
+  //     reporter_id: rider?.id,
+  //     reporter_type: UserType?.RIDER,
+  //     created_at: new Date(),
+  //     updated_at: new Date(),
+  //   });
 
-    const savedComplain = await this.complaintRepository.save(newComplain);
-    return {
-      message: 'Complain submitted successfully',
-      data: savedComplain,
-    };
-  }
+  //   const savedComplain = await this.complaintRepository.save(newComplain);
+  //   return {
+  //     message: 'Complain submitted successfully',
+  //     data: savedComplain,
+  //   };
+  // }
 
-  async reportVendor(email_address: string, payload: LogComplaintDTO) {
-    const rider = await this.riderRepository.findOne({
-      where: { email_address: email_address },
-    });
+  // async reportVendor(email_address: string, payload: LogComplaintDTO) {
+  //   const rider = await this.riderRepository.findOne({
+  //     where: { email_address: email_address },
+  //   });
 
-    if (!rider) {
-      throw new HttpException('Rider not found', HttpStatus.NOT_FOUND);
-    }
+  //   if (!rider) {
+  //     throw new HttpException('Rider not found', HttpStatus.NOT_FOUND);
+  //   }
 
-    // Now create a complaint
-    const newComplain = await this.complaintRepository.create({
-      first_name: payload?.firstname,
-      last_name: payload?.lastname,
-      message: payload?.message,
-      subject: payload?.subject,
-      reportee_id: payload?.reporteeId,
-      reportee_type: ReporteeType.VENDOR,
-      reporter_id: rider?.id,
-      reporter_type: UserType?.RIDER,
-      created_at: new Date(),
-      updated_at: new Date(),
-    });
+  //   // Now create a complaint
+  //   const newComplain = await this.complaintRepository.create({
+  //     first_name: payload?.firstname,
+  //     last_name: payload?.lastname,
+  //     message: payload?.message,
+  //     subject: payload?.subject,
+  //     reportee_id: payload?.reporteeId,
+  //     reportee_type: ReporteeType.VENDOR,
+  //     reporter_id: rider?.id,
+  //     reporter_type: UserType?.RIDER,
+  //     created_at: new Date(),
+  //     updated_at: new Date(),
+  //   });
 
-    const savedComplain = await this.complaintRepository.save(newComplain);
-    return {
-      message: 'Complain submitted successfully',
-      data: savedComplain,
-    };
-  }
+  //   const savedComplain = await this.complaintRepository.save(newComplain);
+  //   return {
+  //     message: 'Complain submitted successfully',
+  //     data: savedComplain,
+  //   };
+  // }
 
   async setAvailability(email_address: string, isAvailable: boolean) {
     const rider = await this.riderRepository.findOne({
@@ -1622,5 +1839,14 @@ export class RidersService {
       message: 'Availability updated succesfully',
       data: updatedRider,
     };
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async resetDailyOrders() {
+    await this.riderRepository.update(
+      {},
+      { today_orders: 0, last_reset_date: new Date() },
+    );
+    console.log('✅ Daily orders reset successfully!');
   }
 }

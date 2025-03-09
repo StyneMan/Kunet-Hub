@@ -427,6 +427,14 @@ export class CustomerController {
     return await this.customerService.customerOrdersCancelled(id, page, limit);
   }
 
+  @Get('offers/available')
+  async availableOffers(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.availableOffers(page, limit);
+  }
+
   @Get('search/result')
   async searchResult(@Query('query') query: string) {
     return this.customerService.search(query);
@@ -456,5 +464,15 @@ export class CustomerController {
   )
   async setWalletPIN(@Body() payload: UpdateWalletPINDTO, @Req() req: any) {
     return this.customerService.setWalletPin(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/pending_reviews')
+  async customerPendingReviews(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.customerService.customerPendingReviews(page, limit, id);
   }
 }

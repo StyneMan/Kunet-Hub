@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
+import { CouponStatus } from 'src/enums/coupon.status.enum';
 import { DiscountType } from 'src/enums/discount.type.enum';
 
 export class UpdateCouponDTO {
@@ -26,8 +27,8 @@ export class UpdateCouponDTO {
   discount?: number;
 
   @IsOptional()
-  @IsNumber()
-  isEnabled?: boolean;
+  @IsEnum(CouponStatus)
+  status?: CouponStatus;
 
   @IsOptional()
   @IsEnum(DiscountType)

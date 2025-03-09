@@ -29,6 +29,10 @@ export class PaystackPayoutDTO {
   beneficiary_name: string;
 
   @IsNotEmpty()
+  @IsString()
+  recipient_code: string;
+
+  @IsNotEmpty()
   @IsEnum(UserType)
   user_type: UserType;
 }

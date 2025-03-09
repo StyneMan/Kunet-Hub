@@ -4,7 +4,7 @@ import {
   Column,
   Entity,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Rider } from './rider.entity';
@@ -35,7 +35,7 @@ export class RiderBank {
   @Column({ nullable: true })
   beneficiary?: string;
 
-  @OneToOne(() => Rider)
+  @ManyToOne(() => Rider)
   @JoinColumn()
   owner: Rider;
 

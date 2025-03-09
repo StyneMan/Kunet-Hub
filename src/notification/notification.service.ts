@@ -30,7 +30,7 @@ export class NotificationService {
       return response;
     } catch (error) {
       console.error('ERROR SSEND NOTIFICATION ::: ', error);
-      throw error;
+      // throw error;
     }
   }
 }

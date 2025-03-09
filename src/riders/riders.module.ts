@@ -16,7 +16,6 @@ import { Operator } from 'src/entities/operator.entity';
 import { RiderReview } from 'src/entities/rider.review.entity';
 import { Order } from 'src/entities/order.entity';
 import { CommissionAndFee } from 'src/entities/fee.entity';
-import { Complaint } from 'src/entities/complaint.entity';
 import { SocketModule } from 'src/socket/socket.module';
 import { OrdersService } from 'src/orders/orders.service';
 import { SmsService } from 'src/sms/sms.service';
@@ -31,6 +30,11 @@ import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { DummyOrder } from 'src/entities/dummy.order.entity';
+import { NotificationService } from 'src/notification/notification.service';
+import { AdminWallet } from 'src/entities/admin.wallet.entity';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { VendorReview } from 'src/entities/vendor.review.entity';
 
 @Module({
   imports: [
@@ -46,14 +50,17 @@ import { DummyOrder } from 'src/entities/dummy.order.entity';
       RiderWallet,
       RiderReview,
       RiderDocument,
+      AdminWallet,
       AdminActivity,
-      Complaint,
       VendorLocation,
       VendorWallet,
       SMSProviders,
+      PendingReviews,
+      VendorReview,
       CommissionAndFee,
       RiderTransactions,
       VendorTransactions,
+      VendorNotification,
       SystemTransactions,
     ]),
     SocketModule,
@@ -68,6 +75,7 @@ import { DummyOrder } from 'src/entities/dummy.order.entity';
     TwilioService,
     PlivoService,
     BroadnetService,
+    NotificationService,
   ],
   controllers: [RidersController],
 })

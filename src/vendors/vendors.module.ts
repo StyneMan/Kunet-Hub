@@ -29,6 +29,12 @@ import { VendorDocument } from 'src/entities/vendor.document.entity';
 import { CustomerWallet } from 'src/entities/customer.wallet.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { NotificationService } from 'src/notification/notification.service';
+import { AdminWallet } from 'src/entities/admin.wallet.entity';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { VendorReview } from 'src/entities/vendor.review.entity';
+import { Rider } from 'src/entities/rider.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
 
 @Module({
   imports: [
@@ -38,12 +44,16 @@ import { NotificationService } from 'src/notification/notification.service';
       Admin,
       Zone,
       Order,
+      Rider,
       Coupon,
       WorkHour,
       Category,
       Customer,
+      AdminWallet,
       SMSProviders,
+      VendorReview,
       VendorWallet,
+      PendingReviews,
       VendorLocation,
       VendorDocument,
       CustomerWallet,
@@ -51,6 +61,8 @@ import { NotificationService } from 'src/notification/notification.service';
       CommissionAndFee,
       SystemTransactions,
       VendorTransactions,
+      VendorNotification,
+      CustomerTransactions,
     ]),
     SocketModule,
   ],

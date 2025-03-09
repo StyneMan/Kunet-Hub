@@ -10,7 +10,7 @@ import { UserStatus } from 'src/enums/user.status.enum';
 import { Repository } from 'typeorm';
 import { FlutterwavePayoutDTO } from './dtos/payout.dto';
 import axios from 'axios';
-import generateRandomPassword from 'src/utils/password_generator';
+// import generateRandomPassword from 'src/utils/password_generator';
 import { generateOTP } from 'src/utils/otp_generator';
 import { v4 } from 'uuid';
 import { UserType } from 'src/enums/user.type.enum';
@@ -39,6 +39,8 @@ import { orderConfirmationEmail } from 'src/utils/order_confirmation_mail';
 import { Operator } from 'src/entities/operator.entity';
 import { Cart } from 'src/entities/cart.entity';
 import { DummyOrder } from 'src/entities/dummy.order.entity';
+import { NotificationService } from 'src/notification/notification.service';
+import { PushNotificationType } from 'src/enums/push.notification.type.enum';
 
 export class FlutterwaveService {
   constructor(
@@ -81,40 +83,56 @@ export class FlutterwaveService {
     private socketGateway: SocketGateway,
     private orderService: OrdersService,
     private readonly mailerService: MailerService,
+    private readonly notificationservice: NotificationService,
   ) {}
 
-  async flutterwavePayout(input: FlutterwavePayoutDTO) {
+  async flutterwavePayout(input: FlutterwavePayoutDTO, secretKey: string) {
     if (!input) {
       throw new HttpException('Payload not provided.', HttpStatus.BAD_REQUEST);
     }
 
-    const secKey = '';
+    // const secKey = '';
     const otp = generateOTP();
-    const numGen = generateRandomPassword();
+    // const numGen = generateRandomPassword();
 
-    return await axios.post(
-      'https://api.flutterwave.com/v3/transfers',
-      {
-        account_bank: input?.account_bank,
-        account_number: input.account_number,
-        amount: input.amount,
-        narration: `Transfer to ${input.user_type}\'s account`,
-        currency: input.currency,
-        reference: `mfsb_${numGen}_${otp}_${v4()}`,
-        callback_url:
-          'https://webhook.site/b3e505b0-fe02-430e-a538-22bbbce8ce0d',
-        debit_currency: 'NGN',
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secKey}`,
+    try {
+      return await axios.post(
+        'https://api.flutterwave.com/v3/transfers',
+        {
+          account_bank: input?.account_bank,
+          account_number: input.account_number,
+          amount: input.amount,
+          narration: `Transfer to ${input.user_type}\'s account`,
+          currency: input.currency,
+          reference: `mfsb_${otp}_${v4()}`,
+          callback_url:
+            'https://webhook.site/b3e505b0-fe02-430e-a538-22bbbce8ce0d',
+          debit_currency: 'NGN',
         },
-      },
-    );
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${secretKey}`,
+          },
+        },
+      );
+    } catch (error) {
+      throw new HttpException(
+        {
+          message: `${
+            error?.response?.data?.message ||
+            error?.data?.response?.data?.message ||
+            error?.data?.message ||
+            'an error occurred'
+          }`,
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
-  async flutterwavePaymentLink(
+  async flutterwaveWalletFunding(
     secretKey: string,
     payload: FlutterwavePaymentLinkDTO,
   ) {
@@ -127,7 +145,7 @@ export class FlutterwaveService {
         amount: payload?.amount,
         currency: 'NGN',
         redirect_url: 'https://myfastbuy.com/success',
-        payment_options: 'ussd, card, barter, payattitude',
+        payment_options: 'ussd, card, barter',
         customer: {
           email: payload?.email_address,
           name: payload?.full_name,
@@ -150,7 +168,7 @@ export class FlutterwaveService {
       where: { id: payload?.customer_id },
     });
 
-    // Create a ne transaction here
+    // Create a new transaction here
     const transaction = this.customerTransactionRepository.create({
       amount: payload?.amount,
       fee: 0,
@@ -164,10 +182,6 @@ export class FlutterwaveService {
     transaction.customer = customer;
     await this.customerTransactionRepository.save(transaction);
     return response.data;
-    // } catch (err) {
-    //   console.error(err.code);
-    //   console.error(err.response?.data);
-    // }
   }
 
   // PLACE ORDER WITH CARD
@@ -265,6 +279,20 @@ export class FlutterwaveService {
       {},
     );
 
+    try {
+      await this.notificationservice.sendPushNotification(
+        transaction?.customer?.fcmToken,
+        {
+          message: `Wallet funded successfully`,
+          notificatioonType: PushNotificationType.SYSTEM,
+          title: 'Wallet Topup',
+          itemId: updatedWallet?.id,
+        },
+      );
+    } catch (error) {
+      console.log('ERROR :: ', error);
+    }
+
     return {
       message: 'Wallet topup successfully',
       data: updatedWallet,
@@ -332,6 +360,20 @@ export class FlutterwaveService {
 
         order.customer = dummyOrder?.customer;
         await this.orderRepository.save(order);
+
+        try {
+          await this.notificationservice.sendPushNotification(
+            customer?.fcmToken,
+            {
+              message: `Order placed successfully`,
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Order Placed',
+              itemId: order?.id,
+            },
+          );
+        } catch (error) {
+          console.log('ERROR :: ', error);
+        }
 
         // now send order confirmation email here
         await this.mailerService.sendMail({
@@ -415,6 +457,21 @@ export class FlutterwaveService {
         // Send order email here
         const vendorName =
           order?.vendor?.name + ' ' + order?.vendor_location?.branch_name;
+
+        try {
+          await this.notificationservice.sendPushNotification(
+            customer?.fcmToken,
+            {
+              message: `Order placed successfully`,
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Order Placed',
+              itemId: order?.id,
+            },
+          );
+        } catch (error) {
+          console.log('ERROR :: ', error);
+        }
+
         // now send order confirmation email here
         await this.mailerService.sendMail({
           to: customer?.email_address,
@@ -430,7 +487,7 @@ export class FlutterwaveService {
             fullName: `${customer?.first_name} ${customer?.last_name}`,
             vendorName: vendorName,
             receiverName: order?.receiver?.name,
-            serviceCharge: 0,
+            serviceCharge: order?.service_charge ?? 0,
             deliveryAddress: order?.delivery_address,
             orderDate: new Date(`${order.created_at}`).toLocaleString('en-US'),
           }),
@@ -448,7 +505,11 @@ export class FlutterwaveService {
     }
   }
 
-  async payoutRider(emai_address: string, payload: PayoutRiderDTO) {
+  async payoutRider(
+    emai_address: string,
+    payload: PayoutRiderDTO,
+    secretKey: string,
+  ) {
     // First find admin
     const adm = await this.adminRepository.findOne({
       where: { email_address: emai_address },
@@ -516,14 +577,17 @@ export class FlutterwaveService {
     }
 
     //Now handle payout in flutterwave way
-    const payoutResp = await this.flutterwavePayout({
-      account_bank: request?.bank_info?.bank_code,
-      account_number: request?.bank_info?.account_number,
-      amount: request?.amount,
-      beneficiary_name: request?.bank_info?.account_name,
-      currency: 'NGN',
-      user_type: UserType?.RIDER,
-    });
+    const payoutResp = await this.flutterwavePayout(
+      {
+        account_bank: request?.bank_info?.bank_code,
+        account_number: request?.bank_info?.account_number,
+        amount: request?.amount,
+        beneficiary_name: request?.bank_info?.account_name,
+        currency: 'NGN',
+        user_type: UserType?.RIDER,
+      },
+      secretKey,
+    );
 
     console.log('FLUTTER WAVE PAYOUT RESPONSE HERE :: ', payoutResp);
 
@@ -550,7 +614,11 @@ export class FlutterwaveService {
     };
   }
 
-  async payoutVendor(emai_address: string, payload: PayoutVendorDTO) {
+  async payoutVendor(
+    emai_address: string,
+    payload: PayoutVendorDTO,
+    secretKey: string,
+  ) {
     // First find admin
     const adm = await this.adminRepository.findOne({
       where: { email_address: emai_address },
@@ -618,14 +686,17 @@ export class FlutterwaveService {
     }
 
     //Now handle payout in flutterwave way
-    const payoutResp = await this.flutterwavePayout({
-      account_bank: request?.bank_info?.bank_code,
-      account_number: request?.bank_info?.account_number,
-      amount: request?.amount,
-      beneficiary_name: request?.bank_info?.account_name,
-      currency: 'NGN',
-      user_type: UserType?.OPERATOR,
-    });
+    const payoutResp = await this.flutterwavePayout(
+      {
+        account_bank: request?.bank_info?.bank_code,
+        account_number: request?.bank_info?.account_number,
+        amount: request?.amount,
+        beneficiary_name: request?.bank_info?.account_name,
+        currency: 'NGN',
+        user_type: UserType?.OPERATOR,
+      },
+      secretKey,
+    );
 
     console.log('FLUTTER WAVE PAYOUT RESPONSE HERE :: ', payoutResp);
 

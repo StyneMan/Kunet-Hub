@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Put,
   Query,
@@ -150,11 +151,48 @@ export class OrdersController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('vendor/:id/analytics/sales')
+  async vendorSales(
+    @Req() req: Request,
+    @Query('range') range?: 'daily' | 'weekly' | 'monthly',
+  ) {
+    return await this.orderService.getSalesByVendor(req?.params?.id, range);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('branch/:id/analytics/sales')
+  async branchSales(
+    @Req() req: Request,
+    @Query('range') range?: 'daily' | 'weekly' | 'monthly',
+  ) {
+    return await this.orderService.getSalesByLocation(req?.params?.id, range);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('vendor/:id/sales/weekly')
+  async getVendorWeeklySales(@Req() req: Request) {
+    return await this.orderService.getWeeklySales(req?.params?.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('branch/:id/sales/weekly')
+  async getBranchWeeklySales(@Req() req: Request) {
+    return await this.orderService.getBranchWeeklySales(req?.params?.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put(':id/status/update')
   async updateOrderStatus(
     @Req() req: Request,
     @Query('status') status: OrderStatus,
   ) {
     return await this.orderService.updateOrderStatus(req?.params?.id, status);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/reassign')
+  async reassignOrder(@Param('id') id: string) {
+    return await this.orderService.matchOrderToRider(id);
   }
 }

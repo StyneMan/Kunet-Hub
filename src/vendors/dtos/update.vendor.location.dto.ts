@@ -50,5 +50,5 @@ export class UpdateVendorLocationDTO {
 
   @IsOptional()
   @IsString()
-  isso_code?: string;
+  iso_code?: string;
 }

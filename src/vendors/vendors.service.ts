@@ -53,6 +53,15 @@ import { CustomerWallet } from 'src/entities/customer.wallet.entity';
 import { SystemTransactions } from 'src/entities/system.transactions.entity';
 import { NotificationService } from 'src/notification/notification.service';
 import { PushNotificationType } from 'src/enums/push.notification.type.enum';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
+import { Customer } from 'src/entities/customer.entity';
+import { VendorReview } from 'src/entities/vendor.review.entity';
+import { RateVendorDTO } from './dtos/rate.vendor.dto';
+import { Rider } from 'src/entities/rider.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { RevieweeType } from 'src/enums/reviewer.type.enum';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
 
 @Injectable()
 export class VendorsService {
@@ -61,6 +70,10 @@ export class VendorsService {
     private readonly adminRepository: Repository<Admin>,
     @InjectRepository(Vendor)
     private readonly vendorRepository: Repository<Vendor>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Rider)
+    private readonly riderRepository: Repository<Rider>,
     @InjectRepository(Operator)
     private readonly operatorRepository: Repository<Operator>,
     @InjectRepository(OperatorDocument)
@@ -73,6 +86,8 @@ export class VendorsService {
     private readonly couponRepository: Repository<Coupon>,
     @InjectRepository(VendorWallet)
     private readonly walletRepository: Repository<VendorWallet>,
+    @InjectRepository(VendorNotification)
+    private readonly notificationRepository: Repository<VendorNotification>,
     @InjectRepository(CustomerWallet)
     private readonly customerWalletRepository: Repository<CustomerWallet>,
     @InjectRepository(VendorTransactions)
@@ -94,6 +109,12 @@ export class VendorsService {
     @InjectRepository(CommissionAndFee)
     private commissionAndFeeRepository: Repository<CommissionAndFee>,
     private readonly notificationservice: NotificationService,
+    @InjectRepository(CustomerTransactions)
+    private readonly customerTransactionRepository: Repository<CustomerTransactions>,
+    @InjectRepository(VendorReview)
+    private readonly vendorReviewRepository: Repository<VendorReview>,
+    @InjectRepository(PendingReviews)
+    private readonly pendingReviewRepository: Repository<PendingReviews>,
   ) {}
 
   async findVendors(page: number, limit: number, vendor_type?: VendorType) {
@@ -640,6 +661,39 @@ export class VendorsService {
       totalItems: total,
       perPage: limit,
     };
+  }
+
+  async updateBranchFCMToken(
+    email_address: string,
+    payload: UpdateFCMTokenDTO,
+  ) {
+    console.log('FCM TOKEN PAYLOADD VVVENDODR CHECK ::: ', payload);
+
+    const user = await this.operatorRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor', 'vendor_location'],
+    });
+    if (!user) throw new HttpException('User not found.', HttpStatus.NOT_FOUND);
+
+    if (user.operator_type !== OperatorType.OWNER) {
+      const vendorLocation = await this.vendorLocationRepository.findOne({
+        where: { id: user?.vendor_location?.id },
+      });
+
+      vendorLocation.fcmToken = payload?.token ?? vendorLocation.fcmToken;
+      const updatedLocation =
+        await this.vendorLocationRepository.save(vendorLocation);
+
+      // const { password, ...others } = updatedUser;
+      // console.log('REMOVED PASWORD ::: ', password);
+
+      return {
+        message: '',
+        user: updatedLocation,
+      };
+    }
+
+    return;
   }
 
   async addCategory(email_address: string, payload: AddCategoryDTO) {
@@ -1530,7 +1584,6 @@ export class VendorsService {
       updated_at: new Date(),
     });
     newVendorLocation.vendor = vndr;
-    // newVendorLocation.staffs = [operator];
 
     const savedLocation =
       await this.vendorLocationRepository.save(newVendorLocation);
@@ -1662,7 +1715,6 @@ export class VendorsService {
           'owner.phone_number',
           'owner.photo_url',
         ])
-        // .where('vendor.status != :status', { status: VendorStatus.DELETED })
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -1743,6 +1795,7 @@ export class VendorsService {
       this.vendorDocRepository
         .createQueryBuilder('documentRepo') // Alias for the Admin table
         .leftJoinAndSelect('documentRepo.owner', 'owner') // Join the related product table
+        .orderBy('documentRepo.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -1765,6 +1818,7 @@ export class VendorsService {
       this.vendorDocRepository
         .createQueryBuilder('documentRepo') // Alias for the Admin table
         .leftJoinAndSelect('documentRepo.owner', 'owner') // Join the related product table
+        .orderBy('documentRepo.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -1857,6 +1911,30 @@ export class VendorsService {
       data: null,
     });
 
+    // Notify all customers in the same zone as venddor location or use gEO coordinates
+
+    try {
+      const customers = await this.customerRepository.find({});
+      for (let index = 0; index < customers?.length; index++) {
+        const customer = customers[index];
+        try {
+          await this.notificationservice.sendPushNotification(
+            customer?.fcmToken,
+            {
+              message: `A new offer (${savedCoupon?.code}) is available`,
+              notificatioonType: PushNotificationType.OFFER,
+              title: 'New Offer Available',
+              itemId: savedCoupon?.id,
+            },
+          );
+        } catch (error) {
+          console.log('ERROR :: ', error);
+        }
+      }
+    } catch (error) {
+      console.error(error);
+    }
+
     return savedCoupon;
   }
 
@@ -1923,9 +2001,7 @@ export class VendorsService {
     coupon.discount_type = payload?.discountType ?? coupon.discount_type;
     coupon.expires_at = payload?.expiresAt ?? coupon.expires_at;
     coupon.name = payload?.name ?? coupon.name;
-    coupon.coupon_status = payload?.isEnabled
-      ? CouponStatus.ACTIVE
-      : coupon.coupon_status;
+    coupon.coupon_status = payload?.status ?? coupon.coupon_status;
     coupon.image_url = payload?.imageUrl ?? coupon.image_url;
     coupon.updated_at = new Date();
 
@@ -1971,6 +2047,7 @@ export class VendorsService {
         .createQueryBuilder('coupon')
         .leftJoinAndSelect('coupon.vendor', 'vendor')
         .where('vendor.id = :vendorID', { vendorID })
+        .orderBy('coupon.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -2001,6 +2078,7 @@ export class VendorsService {
           .leftJoinAndSelect('coupon.vendor', 'vendor') // Join the related admin table
           .leftJoinAndSelect('vendor.categories', 'categories') // Include categories
           .where('coupon.status = :status', { status }) // Filter by vendor ID
+          .orderBy('coupon.created_at', 'DESC')
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
           .getMany(), // Execute query to fetch data
@@ -2211,7 +2289,7 @@ export class VendorsService {
 
     const order = await this.orderRepository.findOne({
       where: { id: payload?.orderId },
-      relations: ['vendor', 'customer'],
+      relations: ['vendor', 'customer', 'vendor_location'],
     });
 
     if (!order) {
@@ -2220,7 +2298,7 @@ export class VendorsService {
 
     if (order.order_type !== OrderType.PARCEL_ORDER) {
       const vendor = await this.vendorRepository.findOne({
-        where: { id: operator.vendor.id },
+        where: { id: order.vendor.id },
       });
 
       if (!vendor) {
@@ -2235,7 +2313,7 @@ export class VendorsService {
       }
 
       const vendorLocation = await this.vendorLocationRepository.findOne({
-        where: { id: operator.vendor.id },
+        where: { id: order.vendor_location?.id },
       });
 
       if (!vendorLocation) {
@@ -2434,8 +2512,26 @@ export class VendorsService {
       }
 
       customerWallet.prev_balance = customerWallet.balance;
-      customerWallet.balance = customerWallet.balance + order.total_amount;
+      customerWallet.balance =
+        customerWallet.balance + order.total_amount + order?.service_charge;
       customerWallet.updated_at = new Date();
+
+      await this.customerWalletRepository.save(customerWallet);
+
+      // Create a transaction to this effect
+      const customerTrans = this.customerTransactionRepository.create({
+        amount: order?.total_amount + order?.service_charge,
+        fee: 0,
+        transaction_type: TransactionType.CREDIT,
+        summary: 'Order cancellation refund',
+        tx_ref: `${order?.order_id}-${generateRandomCoupon(3, order?.customer?.first_name)}`,
+        status: 'success',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      customerTrans.customer = order.customer;
+      await this.customerTransactionRepository.save(customerTrans);
 
       // Now create a transaction to this effect here
       const systemTrans = this.systemTransactionRepository.create({
@@ -2469,10 +2565,288 @@ export class VendorsService {
         },
       );
 
+      await this.notificationservice.sendPushNotification(
+        order?.customer?.fcmToken,
+        {
+          message: 'Your order has been rejected',
+          notificatioonType: PushNotificationType.ORDER,
+          title: 'Order Rejected',
+          itemId: order?.id,
+        },
+      );
+
       return {
         message: 'Order rejected successfully',
       };
     }
+  }
+
+  async rateVendor(payload: RateVendorDTO) {
+    // First get vendor
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.vendorLocationId },
+    });
+
+    if (!vendorLocation) {
+      throw new HttpException(
+        'Vendor with given ID not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (payload?.reviewerType === UserType.CUSTOMER) {
+      const customer = await this.customerRepository.findOne({
+        where: { id: payload?.reviewerId },
+      });
+
+      if (!customer) {
+        throw new HttpException(
+          'Customer with given ID not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Now chek if this customer has rated this vendor before
+      const customerRated = await this.vendorReviewRepository.findOne({
+        where: { customer: { id: customer?.id } },
+      });
+      if (customerRated) {
+        throw new HttpException(
+          'You have already reviewed this vendor',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      // Not yet reviewed. review here
+      const newReview = this.vendorReviewRepository.create({
+        message: payload?.message,
+        rating: payload?.rating,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      newReview.vendor_location = vendorLocation;
+      newReview.customer = customer;
+      const savedReview = await this.vendorReviewRepository.save(newReview);
+
+      // first find all vendor reviews andd then do the math.
+      const reviews = await this.vendorReviewRepository.find({
+        where: { vendor_location: { id: vendorLocation?.id } },
+        relations: ['vendor_location'],
+      });
+
+      let ratings = 0;
+      for (let index = 0; index < reviews.length; index++) {
+        const element = reviews[index];
+        ratings = ratings + element?.rating;
+      }
+
+      // Now update vendor rating here
+      const rater = ratings / reviews?.length;
+      vendorLocation.rating = rater;
+
+      await this.vendorLocationRepository.save(vendorLocation);
+
+      // Now clear from pending review if any
+      const pendingFound = await this.pendingReviewRepository.findOne({
+        where: {
+          reviewee_type: RevieweeType.VENDOR,
+          customer: { id: customer?.id },
+          reviewee_id: vendorLocation?.id,
+        },
+      });
+
+      if (pendingFound) {
+        // Exists. Now delete it here
+        await this.pendingReviewRepository.delete({ id: pendingFound?.id });
+      }
+
+      // refresh products, orders and vendor_locations here
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-vendors',
+        {
+          data: null,
+        },
+      );
+
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-favourites',
+        {
+          data: null,
+        },
+      );
+
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-orders',
+        {
+          data: null,
+        },
+      );
+
+      return {
+        message: 'Vendor rated successfully',
+        data: savedReview,
+      };
+    } else if (payload?.reviewerType === UserType.RIDER) {
+      const rider = await this.riderRepository.findOne({
+        where: { id: payload?.reviewerId },
+      });
+
+      if (!rider) {
+        throw new HttpException(
+          'Rider with given ID not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Now chek if this customer has rated this vendor before
+      const riderRated = await this.vendorReviewRepository.findOne({
+        where: { rider: { id: rider?.id } },
+      });
+      if (riderRated) {
+        throw new HttpException(
+          'You have already reviewed this vendor',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      // Not yet reviewed. review here
+      const newReview = this.vendorReviewRepository.create({
+        message: payload?.message,
+        rating: payload?.rating,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      newReview.vendor_location = vendorLocation;
+      newReview.rider = rider;
+      const savedReview = await this.vendorReviewRepository.save(newReview);
+
+      // first find all vendor reviews and then do the math.
+      const reviews = await this.vendorReviewRepository.find({
+        where: { vendor_location: { id: vendorLocation?.id } },
+        relations: ['vendor_location'],
+      });
+
+      let ratings = 0;
+      for (let index = 0; index < reviews.length; index++) {
+        const element = reviews[index];
+        ratings = ratings + element?.rating;
+      }
+
+      // Now update vendor rating here
+      const rater = ratings / reviews?.length;
+      vendorLocation.rating = rater;
+
+      await this.vendorLocationRepository.save(vendorLocation);
+
+      // Now clear from pending review if any
+      const pendingFound = await this.pendingReviewRepository.findOne({
+        where: {
+          reviewee_type: RevieweeType.VENDOR,
+          rider: { id: rider?.id },
+          reviewee_id: vendorLocation?.id,
+        },
+      });
+
+      if (pendingFound) {
+        // Exists. Now delete it here
+        await this.pendingReviewRepository.delete({ id: pendingFound?.id });
+      }
+
+      // refresh products, orders and vendor_locations here
+      this.socketGateway.sendEvent(
+        rider?.id,
+        UserType.RIDER,
+        'refresh-vendors',
+        {
+          data: null,
+        },
+      );
+
+      this.socketGateway.sendEvent(
+        rider?.id,
+        UserType.RIDER,
+        'refresh-orders',
+        {
+          data: null,
+        },
+      );
+
+      return {
+        message: 'Vendor rated successfully',
+        data: savedReview,
+      };
+    } else {
+      throw new HttpException('Forbidden reviewer type', HttpStatus.FORBIDDEN);
+    }
+  }
+
+  async findVendorNotifications(page: number, limit: number, vendorID: string) {
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: vendorID },
+    });
+
+    if (!vendor) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          message: 'Vendor not found',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total, unreadCount] = await Promise.all([
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .leftJoinAndSelect('notification.vendor', 'vendor')
+        .leftJoinAndSelect('notification.rider', 'rider')
+        .where('vendor.id = :vendorID', { vendorID })
+        .orderBy('notification.created_at', 'DESC')
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+
+      this.notificationRepository
+        .createQueryBuilder('notification') // Alias for the table
+        .leftJoin('notification.vendor', 'vendor') // Join the related vendor table
+        .where('vendor.id = :vendorID', { vendorID }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .leftJoin('notification.vendor', 'vendor')
+        .where('vendor.id = :vendorID', { vendorID })
+        .andWhere('notification.is_read = :isRead', { isRead: false }) // Count only unread notifications
+        .getCount(),
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+      unreadNotifications: unreadCount, // Include unread count in the response
+    };
+  }
+
+  async markAllAsRead(vendorID: string) {
+    await this.notificationRepository
+      .createQueryBuilder()
+      .update(VendorNotification)
+      .set({ is_read: true })
+      .where('vendor.id = :vendorID AND is_read = false', { vendorID })
+      .execute();
+
+    return { message: '' };
   }
 
   async couponCronJob() {

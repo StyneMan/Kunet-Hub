@@ -6,9 +6,9 @@ import { Admin } from 'src/entities/admin.entity';
 import { Customer } from 'src/entities/customer.entity';
 import { CustomerTransactions } from 'src/entities/customer.transactions.entity';
 import { generateOTP } from 'src/utils/otp_generator';
-import generateRandomPassword from 'src/utils/password_generator';
+// import generateRandomPassword from 'src/utils/password_generator';
 import { Repository } from 'typeorm';
-import { v4 } from 'uuid';
+// import { v4 } from 'uuid';
 import { PaystackPayoutDTO } from './dtos/payout.dto';
 import { TransactionType } from 'src/enums/transaction.type.enum';
 import { CustomerWallet } from 'src/entities/customer.wallet.entity';
@@ -44,32 +44,27 @@ export class PaystackService {
     private readonly mailerService: MailerService,
   ) {}
 
-  async paystackPayout(input: PaystackPayoutDTO) {
+  async paystackPayout(input: PaystackPayoutDTO, secretKey: string) {
     if (!input) {
       throw new HttpException('Payload not provided.', HttpStatus.BAD_REQUEST);
     }
 
-    const secKey = '';
-    const otp = generateOTP();
-    const numGen = generateRandomPassword();
+    // const otp = generateOTP();
+    // const numGen = generateRandomPassword();
 
     return await axios.post(
       'https://api.paystack.co/v3/transfers',
       {
-        account_bank: input?.account_bank,
-        account_number: input.account_number,
-        amount: input.amount,
-        narration: `Transfer to ${input.user_type}\'s account`,
-        currency: input.currency,
-        reference: `mfsb_${numGen}_${otp}_${v4()}`,
-        callback_url:
-          'https://webhook.site/b3e505b0-fe02-430e-a538-22bbbce8ce0d',
-        debit_currency: 'NGN',
+        source: 'balance',
+        recipient: input.recipient_code,
+        amount: input.amount * 100,
+        reason: `Transfer to ${input.user_type}\'s account`,
+        currency: 'NGN',
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${secKey}`,
+          Authorization: `Bearer ${secretKey}`,
         },
       },
     );
@@ -273,7 +268,7 @@ export class PaystackService {
             fullName: `${customer?.first_name} ${customer?.last_name}`,
             vendorName: 'FastBuy Team',
             receiverName: order?.receiver?.name,
-            serviceCharge: 0,
+            serviceCharge: order?.service_charge ?? 0,
             deliveryAddress: order?.delivery_address,
             orderDate: new Date(`${order.created_at}`).toLocaleString('en-US'),
           }),

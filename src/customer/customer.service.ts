@@ -51,8 +51,11 @@ import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 import { OrderStatus } from 'src/enums/order.status.enum';
 import { OrderType } from 'src/enums/order.type.enum';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
-import { stringify } from 'flatted';
+// import { stringify } from 'flatted';
 import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { CouponStatus } from 'src/enums/coupon.status.enum';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+// import { parse, stringify } from 'flatted';
 // import { NotificationGateway } from 'src/notification/notification.gateway';
 
 @Injectable()
@@ -86,6 +89,8 @@ export class CustomerService {
     private readonly couponRepository: Repository<Coupon>,
     @InjectRepository(VendorLocation)
     private readonly vendorLocationRepository: Repository<VendorLocation>,
+    @InjectRepository(PendingReviews)
+    private readonly pendingReviewRepository: Repository<PendingReviews>,
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
   ) {}
@@ -601,6 +606,65 @@ export class CustomerService {
     };
   }
 
+  async customerOrders(page: number, limit: number, customerId: string) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('orders.vendor_location', 'vendor_location') // Join the related product table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .leftJoinAndSelect('vendor.categories', 'categories')
+        .leftJoinAndSelect('vendor.owner', 'owner')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        // .andWhere('orders.paid_at != :paid_at', {
+        //   paid_at: null,
+        // })
+        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.ordersRepository
+        .createQueryBuilder('orders') // Alias for the table
+        .leftJoin('orders.customer', 'customer') // Join the related vendor table
+        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
+        .innerJoinAndSelect('vendor.categories', 'categories')
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        // .andWhere('orders.paid_at != :paid_at', {
+        //   paid_at: null,
+        // })
+        .getCount(), // Count total records for pagination
+    ]);
+
+    console.log('ITEMS :::: ===>>> ', total);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
   async addCartItem(email_address: string, payload: CartItemDTO) {
     // First check if user is valid
     const customer = await this.customerRepository.findOne({
@@ -743,7 +807,7 @@ export class CustomerService {
       cart.total_amount = totalAmt;
       cart.items = allItems;
       cart.updated_at = new Date();
-      const updatedCart = await this.cartRepository.save(cart);
+      await this.cartRepository.save(cart);
 
       this.socketGateway.sendEvent(
         customer?.id,
@@ -754,9 +818,17 @@ export class CustomerService {
         },
       );
 
+      // get all new cart data and return
+      // const refreshedCarts = await this.cartRepository.find({
+      //   where: { customer: { id: customer?.id } },
+      // });
+
+      const refreshedCarts = await this.customerCarts(1, 25, customer?.id);
+
       return {
         message: 'Updated cart successfully',
-        data: stringify(updatedCart),
+        data: refreshedCarts?.data[0],
+        carts: refreshedCarts,
       };
     } else {
       const cartItemAdded = await this.addCartItem(customer?.email_address, {
@@ -781,9 +853,11 @@ export class CustomerService {
       cartNew.vendor = vendorLocation?.vendor;
       cartNew.items = [cartItemAdded];
       const savedCart = await this.cartRepository.save(cartNew);
-
       cartItemAdded.cart = savedCart;
       await this.cartItemRepository.save(cartItemAdded);
+
+      // const savedCart = await this.cartRepository.ƒ(cartNew);
+      // delete savedCart.items.forEach((item) => delete item.cart); // Break reference before returning
 
       this.socketGateway.sendEvent(
         customer?.id,
@@ -794,9 +868,12 @@ export class CustomerService {
         },
       );
 
+      const refreshedCarts = await this.customerCarts(1, 25, customer?.id);
+
       return {
         message: 'Added to cart successfully',
-        data: stringify(savedCart),
+        data: refreshedCarts?.data[0],
+        carts: refreshedCarts,
       };
     }
   }
@@ -889,7 +966,7 @@ export class CustomerService {
       cart.total_amount = totalAmt;
       cart.items = allItems;
       cart.updated_at = new Date();
-      const updatedCart = await this.cartRepository.save(cart);
+      await this.cartRepository.save(cart);
 
       this.socketGateway.sendEvent(
         customer?.id,
@@ -900,9 +977,14 @@ export class CustomerService {
         },
       );
 
+      // get all new cart data and return
+      const refreshedCarts = await this.cartRepository.find({
+        where: { customer: { id: customer?.id } },
+      });
+
       return {
         message: 'Item reordered successfully',
-        data: stringify(updatedCart),
+        data: refreshedCarts,
       };
     } else {
       // const cartItemAdded = await this.addCartItem(customer?.email_address, {
@@ -955,9 +1037,14 @@ export class CustomerService {
         },
       );
 
+      // get all new cart data and return
+      const refreshedCarts = await this.cartRepository.find({
+        where: { customer: { id: customer?.id } },
+      });
+
       return {
         message: 'Item reordered successfully',
-        data: stringify(savedCart),
+        data: refreshedCarts,
       };
     }
   }
@@ -973,6 +1060,7 @@ export class CustomerService {
         .leftJoinAndSelect('cart.vendor_location', 'vendor_location')
         .leftJoinAndSelect('cart.vendor', 'vendor')
         .leftJoinAndSelect('vendor.categories', 'categories')
+        .orderBy('cart.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records returned
         .getMany(), // Execute query to fetch data
@@ -1021,7 +1109,7 @@ export class CustomerService {
       cart: { id: cartId },
     });
 
-    const updatedCart = await this.cartRepository.findOne({
+    await this.cartRepository.findOne({
       where: { id: cartId },
     });
 
@@ -1034,9 +1122,14 @@ export class CustomerService {
       },
     );
 
+    // get all new cart data and return
+    const refreshedCarts = await this.cartRepository.find({
+      where: { customer: { id: customer?.id } },
+    });
+
     return {
       message: 'Cart Items cleared successfully',
-      cart: updatedCart,
+      cart: refreshedCarts,
     };
   }
 
@@ -1067,6 +1160,7 @@ export class CustomerService {
         .leftJoinAndSelect('vendor.categories', 'categories') // Join the related product table
         .leftJoinAndSelect('items.product', 'product') // Join the related product table
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .orderBy('cart.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -1111,7 +1205,7 @@ export class CustomerService {
     cart.vendor_note = payload?.vendor_note;
     cart.updated_at = new Date();
 
-    const updatedCart = await this.cartRepository.save(cart);
+    await this.cartRepository.save(cart);
 
     this.socketGateway.sendEvent(
       cart?.customer?.id,
@@ -1122,9 +1216,14 @@ export class CustomerService {
       },
     );
 
+    // get all new cart data and return
+    const refreshedCarts = await this.cartRepository.find({
+      where: { customer: { id: cart?.customer?.id } },
+    });
+
     return {
-      message: 'Vendor note saved successfully',
-      data: updatedCart,
+      message: 'Cart updated successfully',
+      data: refreshedCarts,
     };
   }
 
@@ -1190,8 +1289,12 @@ export class CustomerService {
       'refresh-cart',
       {},
     );
+
+    const refreshedCarts = await this.customerCarts(1, 25, customer?.id);
+
     return {
       message: 'Cart item deleted successfully',
+      data: refreshedCarts,
     };
   }
 
@@ -1235,8 +1338,11 @@ export class CustomerService {
       },
     );
 
+    const refreshedCarts = await this.customerCarts(1, 25, customer?.id);
+
     return {
       message: 'Cart deleted successfully',
+      data: refreshedCarts,
     };
   }
 
@@ -1542,7 +1648,7 @@ export class CustomerService {
       );
     }
 
-    console.log('DATA ::: ', vendor_type);
+    // console.log('DATA ::: ', vendor_type);
 
     const skip = (page - 1) * limit; // Calculate the number of records to skip
 
@@ -1608,7 +1714,7 @@ export class CustomerService {
       );
     }
 
-    console.log('CUSTOEMR WALLET ::: ', wallet);
+    // console.log('CUSTOEMR WALLET ::: ', wallet);
 
     return wallet;
   }
@@ -1673,66 +1779,7 @@ export class CustomerService {
         .getCount(), // Count total records for pagination
     ]);
 
-    console.log('CUSTOMER TRANSACTIONS ::: ', data);
-
-    return {
-      data,
-      currentPage: page,
-      totalPages: Math.ceil(total / limit),
-      totalItems: total,
-      perPage: limit,
-    };
-  }
-
-  async customerOrders(page: number, limit: number, customerId: string) {
-    const customer = await this.customerRepository.findOne({
-      where: { id: customerId },
-    });
-
-    if (!customer) {
-      throw new HttpException(
-        {
-          message: 'Customer not found!',
-          status: HttpStatus.NOT_FOUND,
-        },
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const skip = (page - 1) * limit; // Calculate the number of records to skip
-
-    const [data, total] = await Promise.all([
-      this.ordersRepository
-        .createQueryBuilder('orders') // Alias for the table
-        .leftJoinAndSelect('orders.customer', 'customer') // Join the related product table
-        .leftJoinAndSelect('orders.vendor_location', 'vendor_location') // Join the related product table
-        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
-        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
-        .leftJoinAndSelect('vendor.categories', 'categories')
-        .leftJoinAndSelect('vendor.owner', 'owner')
-        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
-        // .andWhere('orders.paid_at != :paid_at', {
-        //   paid_at: null,
-        // })
-        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
-        .skip(skip) // Skip the records
-        .take(limit) // Limit the number of records
-        .getMany(), // Execute query to fetch data
-
-      this.ordersRepository
-        .createQueryBuilder('orders') // Alias for the table
-        .leftJoin('orders.customer', 'customer') // Join the related vendor table
-        .leftJoinAndSelect('orders.vendor', 'vendor') // Join the related product table
-        .leftJoinAndSelect('orders.rider', 'rider') // Join the related product table
-        .innerJoinAndSelect('vendor.categories', 'categories')
-        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
-        // .andWhere('orders.paid_at != :paid_at', {
-        //   paid_at: null,
-        // })
-        .getCount(), // Count total records for pagination
-    ]);
-
-    console.log('ITEMS :::: ===>>> ', total);
+    // console.log('CUSTOMER TRANSACTIONS ::: ', data);
 
     return {
       data,
@@ -1771,9 +1818,6 @@ export class CustomerService {
         .leftJoinAndSelect('vendor.owner', 'owner')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('orders.order_type = :order_type', { order_type })
-        .andWhere('orders.paid_at != :paid_at', {
-          paid_at: null,
-        })
         .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -1787,9 +1831,6 @@ export class CustomerService {
         .innerJoinAndSelect('vendor.categories', 'categories')
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
         .andWhere('orders.order_type = :order_type', { order_type })
-        .andWhere('orders.paid_at != :paid_at', {
-          paid_at: null,
-        })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -1903,6 +1944,7 @@ export class CustomerService {
       this.ordersRepository
         .createQueryBuilder('order') // Alias for the table
         .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
@@ -1966,6 +2008,7 @@ export class CustomerService {
       this.ordersRepository
         .createQueryBuilder('order') // Alias for the table
         .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
+        .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
         .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
@@ -1990,6 +2033,41 @@ export class CustomerService {
     ]);
 
     // Return the paginated response
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
+  }
+
+  async availableOffers(page: number, limit: number) {
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const status: CouponStatus = CouponStatus.ACTIVE;
+
+    const [data, total] = await Promise.all([
+      this.couponRepository
+        .createQueryBuilder('coupon') // Alias for the table
+        .leftJoinAndSelect('coupon.vendor', 'vendor') // Join the related product table
+        .leftJoinAndSelect('vendor.categories', 'categories')
+        .where('coupon.coupon_status = :status', { status })
+        .orderBy('coupon.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.couponRepository
+        .createQueryBuilder('coupon') // Alias for the table
+        .leftJoinAndSelect('coupon.vendor', 'vendor') // Join the related product table
+        .innerJoinAndSelect('vendor.categories', 'categories')
+        .where('coupon.coupon_status = :status', { status })
+        .getCount(), // Count total records for pagination
+    ]);
+
+    console.log('ITEMS :::: ===>>> ', total);
+
     return {
       data,
       currentPage: page,
@@ -2128,5 +2206,52 @@ export class CustomerService {
     });
 
     return { vendors, products };
+  }
+
+  async customerPendingReviews(
+    page: number,
+    limit: number,
+    customerId: string,
+  ) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new HttpException(
+        {
+          message: 'Customer not found!',
+          status: HttpStatus.NOT_FOUND,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total] = await Promise.all([
+      this.pendingReviewRepository
+        .createQueryBuilder('review') // Alias for the table
+        .leftJoinAndSelect('review.customer', 'customer') // Join the related product table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .orderBy('review.created_at', 'DESC') // Sort by created_at in descending order
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records
+        .getMany(), // Execute query to fetch data
+
+      this.pendingReviewRepository
+        .createQueryBuilder('review') // Alias for the table
+        .leftJoin('review.customer', 'customer') // Join the related vendor table
+        .where('customer.id = :customerId', { customerId }) // Filter by vendor ID
+        .getCount(), // Count total records for pagination
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+    };
   }
 }

@@ -3,12 +3,10 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
-  OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Rider } from './rider.entity';
 import { Vendor } from './vendor.entity';
-import { Order } from './order.entity';
 import { VendorNotificationType } from 'src/enums/vendor.notification.type.enum';
 
 @Entity({ name: 'vendor_notifications' })
@@ -26,11 +24,7 @@ export class VendorNotification {
   @JoinColumn()
   vendor: Vendor;
 
-  @ManyToOne(() => Order)
-  @JoinColumn()
-  order?: Order;
-
-  @OneToOne(() => Rider)
+  @ManyToOne(() => Rider)
   @JoinColumn()
   rider?: Rider;
 

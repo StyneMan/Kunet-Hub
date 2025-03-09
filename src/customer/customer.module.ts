@@ -17,6 +17,7 @@ import { CustomerTransactions } from 'src/entities/customer.transactions.entity'
 import { Coupon } from 'src/entities/coupon.entity';
 import { Order } from 'src/entities/order.entity';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { VendorLocation } from 'src/entities/vendor.location.entity';
       CustomerWallet,
       ShippingAddress,
       VendorLocation,
+      PendingReviews,
       CustomerFavourites,
       CustomerTransactions,
     ]),

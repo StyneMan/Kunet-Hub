@@ -24,6 +24,7 @@ import {
   RiderArrivedVendorDTO,
 } from './dtos/rider.arrived.dto';
 import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { ReviewRiderDTO } from './dtos/review.rider.dto';
 
 @Controller('rider')
 export class RidersController {
@@ -231,6 +232,16 @@ export class RidersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/transactions/withdrawals')
+  async riderWithdrawals(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.riderService.riderWithdrawals(page, limit, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/orders')
   async riderOrders(
     @Param('id') id: string,
@@ -287,5 +298,11 @@ export class RidersController {
       req.user?.sub,
       payload,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/review')
+  async reviewRider(@Body() payload: ReviewRiderDTO, @Param('id') id: string) {
+    return await this.riderService.reviewRider(id, payload);
   }
 }

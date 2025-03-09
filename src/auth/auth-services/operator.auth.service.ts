@@ -514,7 +514,7 @@ export class OperatorAuthService {
       );
     }
     // Send OTP Code here
-    const otpCode = generateOTP();
+    const otpCode = generateOTP(4);
     const emailSent = await this.mailerService.sendMail({
       to: email_address,
       subject: 'New OTP Sent',

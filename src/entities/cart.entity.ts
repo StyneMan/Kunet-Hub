@@ -11,7 +11,7 @@ import {
 import { Customer } from './customer.entity';
 import { Vendor } from './vendor.entity';
 import { CartItem } from './cart.item.entity';
-import { Exclude } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import { VendorLocation } from './vendor.location.entity';
 
 @Entity({ name: 'carts' })
@@ -29,7 +29,7 @@ export class Cart {
     cascade: true, // Automatically persist CartItems with Cart
     eager: true,
   })
-  @Exclude()
+  @Transform(({ value }) => value.map((item) => ({ ...item, cart: undefined }))) // Break circular reference
   items: CartItem[];
 
   @ManyToOne(() => Customer)

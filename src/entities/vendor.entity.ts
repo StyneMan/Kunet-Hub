@@ -54,6 +54,9 @@ export class Vendor {
   @Column({ nullable: true })
   wallet_pin: string;
 
+  @Column({ nullable: true, default: '' })
+  paystack_trf_recipient?: string;
+
   @Column({ nullable: true })
   logo?: string;
 

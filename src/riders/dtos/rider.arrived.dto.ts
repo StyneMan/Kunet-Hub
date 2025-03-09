@@ -1,9 +1,9 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class RiderArrivedVendorDTO {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  vendorId: string;
+  vendorLocationId?: string;
 
   @IsNotEmpty()
   @IsString()

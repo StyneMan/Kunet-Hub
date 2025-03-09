@@ -47,6 +47,8 @@ export class SupportsService {
 
     await this.supportRepository.save(newSupport);
 
+    // Send support email here
+
     return {
       message: 'Support submitted successfully',
     };

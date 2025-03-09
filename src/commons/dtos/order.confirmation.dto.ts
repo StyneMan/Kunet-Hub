@@ -8,7 +8,7 @@ import {
 } from 'class-validator';
 import { DeliveryType } from 'src/enums/delivery.type.enum';
 import { PaymentMethod } from 'src/enums/payment-method.enum';
-import OrderItemI from 'src/interfaces/order.item';
+// import OrderItemI from 'src/interfaces/order.item';
 
 export class OrderConfirmationEmailDTO {
   @IsNotEmpty()
@@ -29,7 +29,7 @@ export class OrderConfirmationEmailDTO {
 
   @IsNotEmpty()
   @IsArray()
-  items: OrderItemI[];
+  items: any[];
 
   @IsNotEmpty()
   @IsString()

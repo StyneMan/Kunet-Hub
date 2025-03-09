@@ -78,6 +78,7 @@ import { Banner } from './entities/banner.entity';
 import { WorkHour } from './entities/working.hour.entity';
 import { VendorLocation } from './entities/vendor.location.entity';
 import { DummyOrder } from './entities/dummy.order.entity';
+import { AdminWallet } from './entities/admin.wallet.entity';
 
 @Module({
   imports: [
@@ -136,6 +137,7 @@ import { DummyOrder } from './entities/dummy.order.entity';
           VendorBank,
           Address,
           Support,
+          AdminWallet,
           PackOption,
           SMSProviders,
           CustomerWallet,

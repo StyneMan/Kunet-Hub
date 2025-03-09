@@ -40,6 +40,15 @@ import { RiderWallet } from 'src/entities/rider.wallet.entity';
 import { VendorWallet } from 'src/entities/vendor.wallet.entity';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { DummyOrder } from 'src/entities/dummy.order.entity';
+import { NotificationService } from 'src/notification/notification.service';
+import { PushNotificationType } from 'src/enums/push.notification.type.enum';
+import { AdminWallet } from 'src/entities/admin.wallet.entity';
+import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { VendorNotificationType } from 'src/enums/vendor.notification.type.enum';
+import { RiderReview } from 'src/entities/rider.review.entity';
+import { PendingReviews } from 'src/entities/pending.reviews.entity';
+import { RevieweeType, ReviewerType } from 'src/enums/reviewer.type.enum';
+import { VendorReview } from 'src/entities/vendor.review.entity';
 
 @Injectable()
 export class OrdersService {
@@ -72,8 +81,19 @@ export class OrdersService {
     private riderWalletRepository: Repository<RiderWallet>,
     @InjectRepository(VendorWallet)
     private vendorWalletRepository: Repository<VendorWallet>,
+    @InjectRepository(AdminWallet)
+    private adminWalletRepository: Repository<AdminWallet>,
+    @InjectRepository(VendorNotification)
+    private vendorNotificationRepository: Repository<VendorNotification>,
+    @InjectRepository(RiderReview)
+    private riderReviewRepository: Repository<RiderReview>,
+    @InjectRepository(VendorReview)
+    private vendorReviewRepository: Repository<VendorReview>,
+    @InjectRepository(PendingReviews)
+    private pendingReviewRepository: Repository<PendingReviews>,
     private mailerService: MailerService,
     private socketGateway: SocketGateway,
+    private readonly notificationservice: NotificationService,
   ) {}
 
   async createDummyOrder(
@@ -135,6 +155,7 @@ export class OrdersService {
           delivery_address: payload?.deliveryAddress,
           items: payload?.items,
           access_code: accessCode,
+          service_charge: payload?.serviceCharge,
           order_id: orderId,
           order_type: payload?.orderType,
           created_at: new Date(),
@@ -194,6 +215,7 @@ export class OrdersService {
           vendor_note: payload?.vendorNote,
           order_type: payload?.orderType,
           addOns: payload?.addOns,
+          service_charge: payload?.serviceCharge,
           variations: payload?.variations,
           created_at: new Date(),
           updated_at: new Date(),
@@ -278,6 +300,7 @@ export class OrdersService {
           delivery_address: payload?.deliveryAddress,
           items: payload?.items,
           access_code: accessCode,
+          service_charge: payload?.serviceCharge,
           order_id: orderId,
           order_type: payload?.orderType,
           created_at: new Date(),
@@ -335,6 +358,7 @@ export class OrdersService {
           items: payload?.items,
           access_code: accessCode,
           order_id: orderId,
+          service_charge: payload?.serviceCharge,
           vendor_note: payload?.vendorNote,
           order_type: payload?.orderType,
           created_at: new Date(),
@@ -410,6 +434,7 @@ export class OrdersService {
           delivery_addr_lat: payload?.deliveryAddrLat,
           delivery_addr_lng: payload?.deliveryAddrLng,
           delivery_address: payload?.deliveryAddress,
+          service_charge: payload?.serviceCharge,
           items: payload?.items,
           access_code: accessCode,
           order_id: orderId,
@@ -472,6 +497,7 @@ export class OrdersService {
           order_type: payload?.orderType,
           addOns: payload?.addOns,
           variations: payload?.variations,
+          service_charge: payload?.serviceCharge,
           created_at: new Date(),
           updated_at: new Date(),
         });
@@ -481,6 +507,31 @@ export class OrdersService {
         newOrder.vendor = vendorLocation?.vendor;
 
         const savedOrder = await this.orderRepository.save(newOrder);
+
+        // Create vendor notification here
+        try {
+          await this.notificationservice.sendPushNotification(
+            savedOrder?.vendor_location?.fcmToken,
+            {
+              message: `New order from ${customer?.first_name} ${customer?.last_name}`,
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'New Order From Customer',
+              itemId: savedOrder?.id,
+            },
+          );
+        } catch (error) {
+          console.error(error);
+        }
+        const vendorNotification = this.vendorNotificationRepository.create({
+          is_read: false,
+          message: `New order from ${customer?.first_name} ${customer?.last_name}`,
+          notification_type: VendorNotificationType.ORDER_NOTIFICATION,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+        vendorNotification.vendor = vendorLocation.vendor;
+
+        await this.vendorNotificationRepository.save(vendorNotification);
 
         return {
           message: 'New order created successfully',
@@ -553,6 +604,7 @@ export class OrdersService {
           delivery_addr_lat: payload?.deliveryAddrLat,
           delivery_addr_lng: payload?.deliveryAddrLng,
           delivery_address: payload?.deliveryAddress,
+          service_charge: payload?.serviceCharge,
           items: payload?.items,
           access_code: accessCode,
           order_id: orderId,
@@ -611,6 +663,7 @@ export class OrdersService {
           delivery_address: payload?.deliveryAddress,
           items: payload?.items,
           access_code: accessCode,
+          service_charge: payload?.serviceCharge,
           order_id: orderId,
           vendor_note: payload?.vendorNote,
           order_type: payload?.orderType,
@@ -691,9 +744,7 @@ export class OrdersService {
           .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
           .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
           .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
+          .orderBy('order.created_at', 'DESC')
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
           .getMany(), // Execute query to fetch data
@@ -704,9 +755,6 @@ export class OrdersService {
           .leftJoin('order.vendor', 'vendor') // Join the related vendor table
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('order.order_type = :order_type', { order_type }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -728,6 +776,7 @@ export class OrdersService {
         .leftJoinAndSelect('order.customer', 'customer') // Join the related product table
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
+        .orderBy('order.created_at', 'DESC')
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -755,9 +804,6 @@ export class OrdersService {
         .leftJoinAndSelect('order.vendor', 'vendor') // Join the related product table
         .leftJoinAndSelect('order.rider', 'rider') // Join the related product table
         .where('order.order_status = :status', { status }) // Filter by vendor ID
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
-        })
         .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
@@ -769,9 +815,6 @@ export class OrdersService {
         .leftJoin('order.vendor', 'vendor') // Join the related vendor table
         .leftJoin('order.rider', 'rider') // Join the related vendor table
         .where('order.order_status = :status', { status }) // Filter by vendor ID
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
-        })
         .getCount(), // Count total records for pagination
     ]);
 
@@ -783,6 +826,79 @@ export class OrdersService {
       totalItems: total,
       perPage: limit,
     };
+  }
+
+  async getSalesByVendor(
+    vendorId: string,
+    range?: 'daily' | 'weekly' | 'monthly',
+  ): Promise<Partial<Order>[]> {
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        'order.id',
+        'order.order_id',
+        'order.order_status',
+        'order.total_amount',
+        'customer.id',
+        'customer.first_name',
+        'vendor_location.id',
+        'vendor_location.branch_name',
+      ])
+      .leftJoin('order.customer', 'customer')
+      .leftJoin('order.vendor_location', 'vendor_location')
+      .leftJoin('order.vendor', 'vendor')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.vendorId = :vendorId', {
+        vendorId,
+      });
+
+    // Apply date filter based on range
+    if (range === 'daily') {
+      query.andWhere('DATE(order.created_at) = CURRENT_DATE');
+    } else if (range === 'weekly') {
+      query.andWhere("order.created_at >= DATE_TRUNC('week', CURRENT_DATE)");
+    } else if (range === 'monthly') {
+      query.andWhere("order.created_at >= DATE_TRUNC('month', CURRENT_DATE)");
+    } else {
+      // do donthing
+    }
+
+    return query.getMany();
+  }
+
+  async getSalesByLocation(
+    vendorLocationId: string,
+    range?: 'daily' | 'weekly' | 'monthly',
+  ): Promise<Partial<Order>[]> {
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        'order.id',
+        'order.order_id',
+        'order.order_status',
+        'order.total_amount',
+        'customer.id',
+        'customer.first_name',
+        'vendor_location.id',
+        'vendor_location.branch_name',
+      ])
+      .leftJoin('order.customer', 'customer')
+      .leftJoin('order.vendor_location', 'vendor_location')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.vendor_locationId = :vendorLocationId', {
+        vendorLocationId,
+      });
+
+    // Apply date filter based on range
+    if (range === 'daily') {
+      query.andWhere('DATE(order.created_at) = CURRENT_DATE');
+    } else if (range === 'weekly') {
+      query.andWhere("order.created_at >= DATE_TRUNC('week', CURRENT_DATE)");
+    } else if (range === 'monthly') {
+      query.andWhere("order.created_at >= DATE_TRUNC('month', CURRENT_DATE)");
+    }
+
+    return query.getMany();
   }
 
   async vendorOrders(
@@ -931,9 +1047,6 @@ export class OrdersService {
           .leftJoinAndSelect('order.rider', 'rider') // Join the related product tabl
           .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
           .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
           .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
@@ -947,9 +1060,6 @@ export class OrdersService {
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
           .andWhere('order.order_status = :status', { status }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -982,9 +1092,6 @@ export class OrdersService {
           //   'admin.type',
           // ]) // Select only the required fields
           .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
           .orderBy('order.created_at', 'DESC') // Sort by created_at in descending order
           .skip(skip) // Skip the records
           .take(limit) // Limit the number of records
@@ -997,9 +1104,6 @@ export class OrdersService {
           .leftJoinAndSelect('order.vendor_location', 'vendor_location') // Join the related product table
           .leftJoin('order.rider', 'rider') // Join the related vendor table
           .where('vendor_location.id = :branchId', { branchId }) // Filter by vendor ID
-          .andWhere('order.paid_at != :paid_at', {
-            paid_at: null,
-          })
           .getCount(), // Count total records for pagination
       ]);
 
@@ -1043,14 +1147,12 @@ export class OrdersService {
       this.orderRepository
         .createQueryBuilder('order')
         .leftJoinAndSelect('order.customer', 'customer')
+        .leftJoinAndSelect('order.vendor_location', 'vendor_location')
         .leftJoinAndSelect('order.vendor', 'vendor')
         .leftJoinAndSelect('order.rider', 'rider')
         .where('vendor.id = :vendorId', { vendorId })
         .andWhere('order.order_status IN (:...orderStatuses)', {
           orderStatuses,
-        })
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
         })
         .orderBy('order.created_at', 'DESC')
         .skip(skip)
@@ -1063,9 +1165,6 @@ export class OrdersService {
         .where('vendor.id = :vendorId', { vendorId })
         .andWhere('order.order_status IN (:...orderStatuses)', {
           orderStatuses,
-        })
-        .andWhere('order.paid_at != :paid_at', {
-          paid_at: null,
         })
         .getCount(),
     ]);
@@ -1117,13 +1216,30 @@ export class OrdersService {
       console.log('DISTANCE CALCULATE RESULT ::: ', result);
       const serviceCharge = fees?.service_charge;
 
+      // for (let index = 0; index < result?.rows?.length; index++) {
+      //   const element = result?.rows[index];
+      //   console.log('DELIVERY INFO ::: ', element?.elements);
+      //   console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
+      //   console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
+      //   deliveryTime = element?.elements[0]?.duration?.text;
+      //   deliveryDistance = element?.elements[0]?.distance?.value;
+      // }
+
       for (let index = 0; index < result?.rows?.length; index++) {
         const element = result?.rows[index];
         console.log('DELIVERY INFO ::: ', element?.elements);
-        console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
-        console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
-        deliveryTime = element?.elements[0]?.duration?.text;
-        deliveryDistance = element?.elements[0]?.distance?.value;
+        if (`${element?.elements[0]?.status}`.includes('ZERO_RESULTS')) {
+          // use default vaalue. GCP API ISSUE
+          console.log('DELIVERY DISTANCE ::: ', 10);
+          console.log('DELIVERY DURATION ::: ', 10);
+          deliveryTime = '1hr';
+          deliveryDistance = 10000;
+        } else {
+          console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
+          console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
+          deliveryTime = element?.elements[0]?.duration?.text;
+          deliveryDistance = element?.elements[0]?.distance?.value;
+        }
       }
 
       let deliveryKM = 0;
@@ -1138,6 +1254,9 @@ export class OrdersService {
       const weightCharge = payload?.totalWeight * fees?.delivery_charge_per_kg;
       riderFee = fees?.rider_commission_per_km * deliveryKM;
       const serviceFee = (serviceCharge / 100) * (deliveryFee + weightCharge);
+
+      console.log('WeIGHT ::: ', payload?.totalWeight);
+      console.log('WeIGHT 2 ::: ', fees?.delivery_charge_per_kg);
 
       if (payload?.shippingType !== ShippingType.REGULAR) {
         if (payload?.shippingType === ShippingType.EXPRESS) {
@@ -1156,7 +1275,7 @@ export class OrdersService {
           delivery_time: deliveryTime,
           rider_commission: riderFee,
           cost: extraCost + deliveryFee + weightCharge,
-          total_cost: extraCost + deliveryFee + weightCharge + serviceCharge,
+          total_cost: extraCost + deliveryFee + serviceFee,
         };
       } else {
         return {
@@ -1167,7 +1286,7 @@ export class OrdersService {
           rider_commission: riderFee,
           cost: extraCost + deliveryFee + weightCharge,
           message: 'Delivery cost estimated successfully',
-          total_cost: extraCost + deliveryFee + weightCharge + serviceCharge,
+          total_cost: extraCost + deliveryFee + serviceFee,
         };
       }
     }
@@ -1269,7 +1388,7 @@ export class OrdersService {
     // First check if order is available
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['vendor', 'customer', 'operator', 'rider'],
+      relations: ['vendor', 'customer', 'operator', 'rider', 'vendor_location'],
     });
 
     if (!order) {
@@ -1302,6 +1421,22 @@ export class OrdersService {
           data: updatedOrder,
         },
       );
+
+      try {
+        // notify customerF with FCM
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message:
+              'Your order has been rejected and is currently been processed',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Order Accepted',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.log('ERROR :: ', error);
+      }
     } else if (status === OrderStatus.REJECTED) {
       // Vendor operator has accepted this order
       order.order_status = status;
@@ -1328,6 +1463,21 @@ export class OrdersService {
           data: updatedOrder,
         },
       );
+
+      try {
+        // notify customer with FCM
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Your order has been rejected by vendor',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Order Rejected',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.error(error);
+      }
     } else if (status === OrderStatus.READY_FOR_PICKUP) {
       // Vendor operator has accepted this order
       order.order_status = status;
@@ -1356,8 +1506,23 @@ export class OrdersService {
         },
       );
 
+      try {
+        // notify customerF with FCM
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Your order has been processed and is reaady for pickup',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Order Ready For Pickup',
+            itemId: updatedOrder?.id,
+          },
+        );
+      } catch (error) {
+        console.error('PICKUP ERROR ::: ', error);
+      }
+
       return {
-        message: 'Order status updatedd successfully',
+        message: 'Order status updated successfully',
         order: updatedOrder,
       };
     } else if (status === OrderStatus.READY_FOR_DELIVERY) {
@@ -1397,7 +1562,7 @@ export class OrdersService {
       });
 
       return {
-        message: 'Order status updatedd successfully',
+        message: 'Order status updated successfully',
         order: updatedOrder,
       };
     } else if (status === OrderStatus.IN_DELIVERY) {
@@ -1425,19 +1590,23 @@ export class OrdersService {
         },
       );
 
-      // Now notify the customer via socket here
-      this.socketGateway.sendNotification(
-        order.customer?.id,
-        UserType.CUSTOMER,
-        {
-          title: 'Order In Delivery',
-          message: `A rider (${order?.rider?.first_name} ${order?.rider?.last_name}) is on the way to deliver your order`,
-          data: updatedOrder,
-        },
-      );
+      // notify customer with FCM
+      try {
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Rider is on transit to deliver your order',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Rider on the way',
+            itemId: order?.id,
+          },
+        );
+      } catch (error) {
+        console.error(error);
+      }
 
       return {
-        message: 'Order status updatedd successfully',
+        message: 'Order status updated successfully',
         order: updatedOrder,
       };
     } else if (status === OrderStatus.DELIVERED) {
@@ -1466,22 +1635,82 @@ export class OrdersService {
         },
       );
 
-      // Now notify the customer via socket here
-      this.socketGateway.sendNotification(
-        order.customer?.id,
-        UserType.CUSTOMER,
-        {
-          title: 'Order In Delivery',
-          message: `A rider (${order?.rider?.first_name} ${order?.rider?.last_name}) is on the way to deliver your order`,
-          data: updatedOrder,
-        },
-      );
-
       this.socketGateway.sendVendorNotification(order.vendor?.id, {
         title: `Order assigned to Rider `,
         message: 'You will be notified when rider accepts order',
         data: updatedOrder,
       });
+
+      // notify customer with FCM
+      try {
+        await this.notificationservice.sendPushNotification(
+          order?.customer?.fcmToken,
+          {
+            message: 'Rider has delivered your order',
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Order Delivered',
+            itemId: order?.id,
+          },
+        );
+
+        // now check if rider has been rated by this customer. else rate here
+        const customerRated = await this.riderReviewRepository.findOne({
+          where: {
+            customer: { id: order?.customer?.id },
+            rider: { id: order?.rider?.id },
+          },
+        });
+
+        if (!customerRated) {
+          // Customer has not rated this rider before.
+          // So add to pending reviews for this customer
+          const newPendingReview = this.pendingReviewRepository.create({
+            reviewee_id: order?.rider?.id,
+            reviewee_type: RevieweeType.RIDER,
+            reviewer_type: ReviewerType.CUSTOMER,
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+          newPendingReview.customer = order?.customer;
+          newPendingReview.riderReviewee = order?.rider;
+
+          await this.pendingReviewRepository.save(newPendingReview);
+
+          // Now notify customer app to review this rider
+          this.socketGateway.sendEvent(
+            order.customer?.id,
+            UserType.CUSTOMER,
+            'refresh-pending-reviews',
+            {
+              message: '',
+            },
+          );
+        }
+
+        if (order?.order_type !== OrderType.PARCEL_ORDER) {
+          await this.notificationservice.sendPushNotification(
+            order?.vendor_location?.fcmToken,
+            {
+              message: 'Rider has successfully delivered order to customer',
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Order Delivered',
+              itemId: order?.id,
+            },
+          );
+
+          const noti = this.vendorNotificationRepository.create({
+            message: 'Rider has successfully delivered order to customer',
+            is_read: false,
+            notification_type: VendorNotificationType.ORDER_NOTIFICATION,
+            created_at: new Date(),
+          });
+          noti.rider = order.rider;
+          noti.vendor = order?.vendor;
+          await this.vendorNotificationRepository.save(noti);
+        }
+      } catch (error) {
+        console.error(error);
+      }
 
       return {
         message: 'Order status updated successfully',
@@ -1493,7 +1722,7 @@ export class OrdersService {
   async matchOrderToRider(orderId: string) {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['vendor', 'vendor_location'],
+      relations: ['vendor', 'vendor_location', 'customer'],
     });
 
     if (!order) throw new Error('Order not found');
@@ -1506,7 +1735,7 @@ export class OrdersService {
         is_kyc_completed: true,
         is_email_verified: true,
         is_online: true,
-        today_orders: LessThan(10), // Riders with less than 10 orders
+        today_orders: LessThan(20), // Riders with less than 20 orders
       },
     });
 
@@ -1517,8 +1746,12 @@ export class OrdersService {
       nearbyRiders.map(async (rider) => {
         const distance = await calculateDistance(
           {
-            lat: parseFloat(`${order.vendor_location?.lat}`),
-            lng: parseFloat(`${order.vendor_location?.lng}`),
+            lat: parseFloat(
+              `${order.vendor_location?.lat ?? order?.delivery_addr_lat}`,
+            ),
+            lng: parseFloat(
+              `${order.vendor_location?.lng ?? order?.delivery_addr_lng}`,
+            ),
           },
           { lat: rider.current_lat, lng: rider.current_lng },
         );
@@ -1526,9 +1759,11 @@ export class OrdersService {
       }),
     );
 
+    console.log('RIdeRS WITHIN DISTANCE ::: ', ridersWithDistance);
+
     // Sort riders by distance and daily orders
     const sortedRiders = ridersWithDistance
-      .filter((rider) => rider.distance <= 55) // Drivers within 55km
+      .filter((rider) => rider.distance <= 100) // Drivers within 55km
       .sort(
         (a, b) => a.today_orders - b.today_orders || a.distance - b.distance,
       );
@@ -1551,12 +1786,171 @@ export class OrdersService {
     order.updated_at = new Date();
     await this.orderRepository.save(order);
 
+    // Step 3: Update the rider's daily order count
+    await this.riderRepository.update(selectedRider.id, {
+      today_orders: selectedRider.today_orders + 1,
+    });
+
     // Notify the rider
     this.socketGateway.sendNotification(selectedRider?.id, UserType.RIDER, {
       message: `New order assigned: ${order.id}`,
     });
 
+    this.socketGateway.sendEvent(
+      selectedRider?.id,
+      UserType.RIDER,
+      'refresh-orders',
+      {
+        message: `New order assigned: ${order.id}`,
+      },
+    );
+
+    this.socketGateway.sendEvent(
+      order?.customer?.id,
+      UserType.CUSTOMER,
+      'refresh-orders',
+      {
+        message: `New order assigned: ${order.id}`,
+      },
+    );
+
+    this.socketGateway.sendEvent(
+      selectedRider?.id,
+      UserType.RIDER,
+      'refresh-orders',
+      {
+        message: `New order assigned: ${order.id}`,
+      },
+    );
+
+    try {
+      await this.notificationservice.sendPushNotification(
+        selectedRider?.fcmToken,
+        {
+          message: `New Order From ${order?.vendor?.name} ${order?.vendor_location?.branch_name}`,
+          notificatioonType: PushNotificationType.ORDER,
+          title: 'You Have A New Order',
+          itemId: order?.id,
+        },
+      );
+
+      if (order?.order_type !== OrderType.PARCEL_ORDER) {
+        await this.notificationservice.sendPushNotification(
+          order?.vendor_location?.fcmToken,
+          {
+            message: `New Order From ${order?.vendor?.name} ${order?.vendor_location?.branch_name}`,
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'You Have A New Order',
+            itemId: order?.id,
+          },
+        );
+      }
+
+      await this.notificationservice.sendPushNotification(
+        order?.customer?.fcmToken,
+        {
+          message: `Your order has been assigned to ${selectedRider?.first_name} ${selectedRider?.last_name}`,
+          notificatioonType: PushNotificationType.ORDER,
+          title: 'Order Assigned To A Rider',
+          itemId: order?.id,
+        },
+      );
+    } catch (error) {
+      console.error(error);
+    }
+
     return { message: 'Order successfully assigned', rider: selectedRider };
+  }
+
+  async getWeeklySales(vendorId: string) {
+    const salesData = await this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        `DAYOFWEEK(order.created_at) AS dayOfWeek`,
+        `SUM(order.total_amount) AS totalSales`,
+      ])
+      .leftJoinAndSelect('order.vendor', 'vendor')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)') // Last 7 days including today
+      .andWhere('vendor.id = :vendorId', { vendorId })
+      .groupBy('dayOfWeek')
+      .orderBy('dayOfWeek', 'ASC')
+      .getRawMany();
+
+    return this.formatSalesData(salesData);
+  }
+
+  async getBranchWeeklySales(vendorLocationId: string) {
+    const salesData = await this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        `DAYOFWEEK(order.created_at) AS dayOfWeek`,
+        `SUM(order.total_amount) AS totalSales`,
+      ])
+      .leftJoinAndSelect('order.vendor_location', 'vendor_location')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)') // Last 7 days including today
+      .andWhere('order.vendor_location_id = :vendor_location')
+      .andWhere('vendor_location.id = :vendorId', { vendorLocationId })
+      .groupBy('dayOfWeek')
+      .orderBy('dayOfWeek', 'ASC')
+      .getRawMany();
+
+    return this.formatSalesData(salesData);
+  }
+
+  async getDailySales(vendorId: string) {
+    const salesData = await this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        `DAYOFWEEK(order.created_at) AS dayOfWeek`,
+        `SUM(order.total_amount) AS totalSales`,
+      ])
+      .leftJoinAndSelect('order.vendor', 'vendor')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)') // Last 1 days including today
+      .andWhere('vendor.id = :vendorId', { vendorId })
+      .groupBy('dayOfWeek')
+      .orderBy('dayOfWeek', 'ASC')
+      .getRawMany();
+
+    return this.formatSalesData(salesData);
+  }
+
+  async getBranchDailySales(vendorLocationId: string) {
+    const salesData = await this.orderRepository
+      .createQueryBuilder('order')
+      .select([
+        `DAYOFWEEK(order.created_at) AS dayOfWeek`,
+        `SUM(order.total_amount) AS totalSales`,
+      ])
+      .leftJoinAndSelect('order.vendor_location', 'vendor_location')
+      .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
+      .andWhere('order.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)') // Last 7 days including today
+      .andWhere('order.vendor_location_id = :vendor_location')
+      .andWhere('vendor_location.id = :vendorId', { vendorLocationId })
+      .groupBy('dayOfWeek')
+      .orderBy('dayOfWeek', 'ASC')
+      .getRawMany();
+
+    return this.formatSalesData(salesData);
+  }
+
+  private formatSalesData(
+    salesData: { dayOfWeek: number; totalSales: number }[],
+  ) {
+    const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    const salesMap = new Array(7).fill(0);
+
+    salesData.forEach(({ dayOfWeek, totalSales }) => {
+      const index = (dayOfWeek + 5) % 7; // Adjust to start from Monday (1 = Sunday in MySQL)
+      salesMap[index] = totalSales;
+    });
+
+    return {
+      labels: weekDays,
+      datasets: { label: 'Sales', data: salesMap },
+    };
   }
 
   // Runs every minute to check orders
@@ -1572,17 +1966,8 @@ export class OrdersService {
         order_status: OrderStatus.DELIVERED, // Only check delivered orders
         order_delivered_at: LessThanOrEqual(tenMinutesAgo),
       },
+      relations: ['customer', 'rider', 'vendor'],
     });
-
-    // const platformFees = await this.feesRepository.find({});
-    // if (!platformFees || platformFees?.length == 0) {
-    //   return;
-    //   // throw new HttpException(
-    //   //   'Platform fees not initialized by admin',
-    //   //   HttpStatus.FORBIDDEN,
-    //   // );
-    // }
-    // // const fees = platformFees[0];
 
     if (ordersToUpdate.length > 0) {
       for (const order of ordersToUpdate) {
@@ -1595,7 +1980,7 @@ export class OrdersService {
           });
 
           if (rider) {
-            // Fundd this ridder's wallet
+            // Fund this ridder's wallet
             const riderWallet = await this.riderWalletRepository.findOne({
               where: { rider: { id: rider?.id } },
               relations: ['rider'],
@@ -1632,16 +2017,26 @@ export class OrdersService {
               { message: 'Refresh wallet now', data: updated },
             );
 
-            return {
-              message: 'Transaction completed successfully',
-            };
+            try {
+              await this.notificationservice.sendPushNotification(
+                order?.rider?.fcmToken,
+                {
+                  message: 'Order completed and your wallet has been credited',
+                  notificatioonType: PushNotificationType.ORDER,
+                  title: 'Order Completed',
+                  itemId: order?.id,
+                },
+              );
+            } catch (error) {
+              console.error(error);
+            }
           }
 
           const vendor = await this.vendorRepository.findOne({
-            where: { id: order?.rider?.id },
+            where: { id: order?.vendor?.id },
           });
 
-          if (vendor && vendor?.status === VendorStatus.ACTIVE) {
+          if (vendor) {
             const vendorWallet = await this.vendorWalletRepository.findOne({
               where: { vendor: { id: vendor?.id } },
               relations: ['vendor'],
@@ -1675,22 +2070,64 @@ export class OrdersService {
             const updated =
               await this.vendorTransactionRepository.save(vendorTransaction);
 
-            this.socketGateway.sendEvent(
-              rider?.id,
-              UserType.RIDER,
-              'refresh-wallet',
-              { message: 'Refresh wallet now', data: updated },
-            );
+            this.socketGateway.sendVendorEvent(vendor?.id, 'refresh-wallet', {
+              message: 'Refresh wallet now',
+              data: updated,
+            });
 
-            return {
-              message: 'Transaction completed successfully',
-            };
+            try {
+              await this.notificationservice.sendPushNotification(
+                order?.vendor_location?.fcmToken,
+                {
+                  message: 'Order completed and your wallet has been credited',
+                  notificatioonType: PushNotificationType.ORDER,
+                  title: 'Order Completed',
+                  itemId: order?.id,
+                },
+              );
+
+              // Now check if vvendor location is rated by customer else add pending review here
+              const customerRated = await this.vendorReviewRepository.findOne({
+                where: {
+                  customer: { id: order?.customer?.id },
+                  vendor_location: { id: order?.vendor_location?.id },
+                },
+              });
+
+              if (!customerRated) {
+                // Customer has not rated this rider before.
+                // So add to pending reviews for this customer
+                const newPendingReview = this.pendingReviewRepository.create({
+                  reviewee_id: order?.vendor_location?.id,
+                  reviewee_type: RevieweeType.VENDOR,
+                  reviewer_type: ReviewerType.CUSTOMER,
+                  created_at: new Date(),
+                  updated_at: new Date(),
+                });
+                newPendingReview.customer = order?.customer;
+                newPendingReview.vendorReviewee = order?.vendor_location;
+
+                await this.pendingReviewRepository.save(newPendingReview);
+
+                // Now notify customer app to review this rider
+                this.socketGateway.sendEvent(
+                  order.customer?.id,
+                  UserType.CUSTOMER,
+                  'refresh-pending-reviews',
+                  {
+                    message: '',
+                  },
+                );
+              }
+            } catch (error) {
+              console.error(error);
+            }
           }
 
           const remDeliveryFee = order.delivery_fee - order?.rider_commission;
-          const amt = order.service_charge + remDeliveryFee;
+          const amtSys = order.service_charge + remDeliveryFee;
           const systemTransaction = this.systemTransactionRepository.create({
-            amount: amt,
+            amount: amtSys,
             fee: 0,
             status: 'success',
             summary: 'Payment for order purchase',
@@ -1701,9 +2138,9 @@ export class OrdersService {
           });
 
           systemTransaction.order = order;
-          const updated =
+          const updatedSys =
             await this.systemTransactionRepository.save(systemTransaction);
-          console.log('UPDATED SYSTEM NOTIF ::: ', updated);
+          console.log('UPDATED SYSTEM NOTIF ::: ', updatedSys);
 
           // this.socketGateway.sendEvent(
           //   rider?.id,
@@ -1711,6 +2148,29 @@ export class OrdersService {
           //   'refresh-wallet',
           //   { message: 'Refresh wallet now', data: updated },
           // );
+
+          // notify vendor with FCM
+          await this.notificationservice.sendPushNotification(
+            order?.customer?.fcmToken,
+            {
+              message: 'Your order is completed successfully',
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'Order Completed',
+              itemId: order?.id,
+            },
+          );
+
+          // Create vendor notification here
+          const vendorNotification = this.vendorNotificationRepository.create({
+            is_read: false,
+            message: `Order from ${order?.customer?.first_name} ${order?.customer?.last_name} is completed`,
+            notification_type: VendorNotificationType.ORDER_NOTIFICATION,
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+          vendorNotification.vendor = order.vendor;
+
+          await this.vendorNotificationRepository.save(vendorNotification);
 
           return {
             message: 'Transaction completed successfully',
@@ -1756,10 +2216,6 @@ export class OrdersService {
               'refresh-wallet',
               { message: 'Refresh wallet now', data: updated },
             );
-
-            return {
-              message: 'Transaction completed successfully',
-            };
           }
 
           const remDeliveryFee = order.delivery_fee - order?.rider_commission;

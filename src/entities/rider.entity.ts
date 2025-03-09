@@ -38,6 +38,9 @@ export class Rider {
   @Column({ nullable: true })
   fcmToken?: string;
 
+  @Column({ nullable: true, default: '' })
+  paystack_trf_recipient?: string;
+
   @Column({ nullable: true })
   password: string;
 
@@ -125,6 +128,9 @@ export class Rider {
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   kyc_completed_at?: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  last_reset_date?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   next_login?: Date | null;

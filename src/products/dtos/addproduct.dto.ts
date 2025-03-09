@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import {
   Addon,
+  Ingredient,
   Nutrition,
   ProdVariations,
   Specification,
@@ -58,6 +59,10 @@ export class AddProductDTO {
   @IsOptional()
   @IsArray()
   addons?: Addon[];
+
+  @IsOptional()
+  @IsArray()
+  ingredients?: Ingredient[];
 
   @IsNotEmpty()
   @IsString()

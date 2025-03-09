@@ -33,12 +33,12 @@ export class SupportsController {
         }));
 
         // Extract the first error message from the validation errors
-        const firstErrorField = validationErrors[0].field;
+        // const firstErrorField = validationErrors[0].field;
         const firstErrorMessage = validationErrors[0].errors[0];
 
         return new BadRequestException({
           statusCode: 400,
-          message: `${firstErrorField}: ${firstErrorMessage}`,
+          message: `${firstErrorMessage}`,
           errors: validationErrors,
         });
       },

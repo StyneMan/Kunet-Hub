@@ -16,7 +16,27 @@ export default async function calculateDistance(
   const response = await axios.get(url);
   const result = response.data;
 
+  let deliveryDistance = 0;
+  // let deliveryTime = '';
+
   console.log('dIST CALCULATOR RESULT ::: ', result.rows[0].elements[0]);
 
-  return result.rows[0].elements[0].distance?.value / 1000; // Convert to km
+  for (let index = 0; index < result?.rows?.length; index++) {
+    const element = result?.rows[index];
+    console.log('DELIVERY INFO ::: ', element?.elements);
+    if (`${element?.elements[0]?.status}`.includes('ZERO_RESULTS')) {
+      // use default vaalue. GCP API ISSUE
+      console.log('DELIVERY DISTANCE ::: ', 10);
+      console.log('DELIVERY DURATION ::: ', 10);
+      // deliveryTime = '1hr';
+      deliveryDistance = 10000;
+    } else {
+      console.log('DELIVERY DISTANCE ::: ', element?.elements[0]?.distance);
+      console.log('DELIVERY DURATION ::: ', element?.elements[0]?.duration);
+      // deliveryTime = element?.elements[0]?. ?.text;
+      deliveryDistance = element?.elements[0]?.distance?.value;
+    }
+  }
+
+  return deliveryDistance / 1000; // Convert to km
 }

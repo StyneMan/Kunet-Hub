@@ -20,6 +20,7 @@ import { Request } from 'express';
 import { FlutterwavePaymentLinkDTO } from './dtos/flutterwave.payment.dto';
 import { PayCardOrderDTO, PayWalletOrderDTO } from './dtos/pay.card.order.dto';
 import { UpdateBankDTO } from './dtos/updatebank.dto';
+import { RequestPayoutDTO } from './dtos/requestpayout.dto';
 
 @Controller('bank')
 export class BankController {
@@ -150,6 +151,15 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('vendor/accounts/:id/setDefault')
+  async setDefaultVendorBank(@Req() req: any) {
+    return this.bankService.setDefaultVendorBank(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('vendor/accounts/:id/delete')
   @UsePipes(
     new ValidationPipe({
@@ -270,6 +280,15 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Put('rider/accounts/:id/setDefault')
+  async setDefaultRiderBank(@Req() req: any) {
+    return this.bankService.setDefaultRiderBank(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('rider/accounts/:id/delete')
   @UsePipes(
     new ValidationPipe({
@@ -300,6 +319,32 @@ export class BankController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('rider/payout/init')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        // const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initRiderPayout(@Req() req: any, @Body() payload: RequestPayoutDTO) {
+    return this.bankService.requestRiderPayout(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('rider/payouts')
   async riderPayouts(
     @Req() req: Request,
@@ -307,6 +352,32 @@ export class BankController {
     @Query('limit') limit: number = 25,
   ) {
     return await this.bankService.allRiderPayoutRequests(page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('vendor/payout/init')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        // const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async initVendorPayout(@Req() req: any, @Body() payload: RequestPayoutDTO) {
+    return this.bankService.requestVendorPayout(req?.user?.sub, payload);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -399,17 +470,22 @@ export class BankController {
 
   @Post('flutterwave/webhook')
   async flutterwaveWebhook(@Req() req: Request) {
-    console.log('REQUEST ::: ', req.body);
+    console.log('FLUTTERWAVE WEBHOOK REQUEST ::: ', req.body);
     // console.log('RESPONSE ::: ', res);
     const event = req.body?.event;
     if (event === 'charge.completed') {
       const data = req.body?.data;
-      console.log('DATA HERE ::: ', data);
-      if (`${data?.tx_ref}`.startsWith('FBW')) {
-        return this.bankService.flutterwaveWebHook(data);
-      } else {
-        return this.bankService.flutterwaveCardWebHook(data);
+      if (data?.status === 'successful') {
+        console.log('DATA HERE ::: ', data);
+        if (`${data?.tx_ref}`.startsWith('FBW')) {
+          return this.bankService.flutterwaveWebHook(data);
+        } else {
+          return this.bankService.flutterwaveCardWebHook(data);
+        }
       }
+    } else if (event === 'transfer.completed') {
+      const data = req.body?.data;
+      console.log('TRANSFER SUCCESSFUL ::', data);
     }
   }
 

@@ -20,7 +20,7 @@ import { DeliveryType } from 'src/enums/delivery.type.enum';
 import { OrderType } from 'src/enums/order.type.enum';
 import { PaymentMethod } from 'src/enums/payment-method.enum';
 import { ShippingType } from 'src/enums/shipping.type.enum';
-import OrderItemI from 'src/interfaces/order.item';
+// import OrderItemI from 'src/interfaces/order.item';
 
 export class CreateOrderDTO {
   @IsNotEmpty()
@@ -29,7 +29,7 @@ export class CreateOrderDTO {
 
   @IsNotEmpty()
   @IsArray()
-  items: OrderItemI[];
+  items: any[];
 
   @IsOptional()
   @IsString()
@@ -78,6 +78,10 @@ export class CreateOrderDTO {
   @IsOptional()
   @IsNumber()
   riderCommission?: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  serviceCharge: number;
 
   @IsOptional()
   @IsString()

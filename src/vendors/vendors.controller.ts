@@ -31,6 +31,7 @@ import {
 } from 'src/riders/dtos/order.action.dto';
 import { AddVendorLocationDTO } from './dtos/add.vendor.location.dto';
 import { UpdateVendorLocationDTO } from './dtos/update.vendor.location.dto';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
 
 @Controller('vendor')
 export class VendorsController {
@@ -176,7 +177,7 @@ export class VendorsController {
     }),
   )
   async adminUpdateVendor(@Req() req: any, @Body() body: UpdateVendorDTO) {
-    return await this.vendorService.updateVendor(
+    return await this.vendorService.adminUpdateVendor(
       req?.user?.sub,
       req?.params?.id,
       body,
@@ -583,6 +584,12 @@ export class VendorsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/wallet')
+  async getWallet(@Param('id') id: string) {
+    return this.vendorService.findVendorWallet(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('order/accept')
   async acceptOrder(@Body() payload: AcceptOrderDTO, @Req() req: any) {
     return await this.vendorService.acceptOrder(req.user?.sub, payload);
@@ -592,5 +599,51 @@ export class VendorsController {
   @Put('order/reject')
   async rejectOrder(@Body() payload: RejectOrderDTO, @Req() req: any) {
     return await this.vendorService.rejectOrder(req.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('fcm/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateFCMToken(@Req() req: any, @Body() body: UpdateFCMTokenDTO) {
+    return await this.vendorService.updateBranchFCMToken(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/notifications')
+  async vendorNotifications(
+    @Req() req: Request,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.vendorService.findVendorNotifications(
+      page,
+      limit,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/notifications/read')
+  async markAsReadNotifications(@Req() req: any) {
+    return await this.vendorService.markAllAsRead(req?.params?.id);
   }
 }

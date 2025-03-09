@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class RequestPayoutDTO {
   @IsNotEmpty()
@@ -10,14 +10,14 @@ export class RequestPayoutDTO {
   walletId: string;
 
   @IsNotEmpty()
-  @IsString()
+  @IsNumber()
   amount: number;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  vendorId: string;
+  vendorId?: string;
 
   @IsNotEmpty()
   @IsString()
-  otpCode: string;
+  walletPin: string;
 }
