@@ -11,6 +11,13 @@ import { UserStatus } from 'src/enums/user.status.enum';
 import { AdminActivity } from 'src/entities/admin.activity.entity';
 import { UserType } from 'src/enums/user.type.enum';
 import { Rider } from 'src/entities/rider.entity';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
+import { AdminRoles } from 'src/enums/admin.roles.enum';
+import * as bcrypt from 'bcrypt';
+import { AdminAccess } from 'src/enums/admin.access.enum';
+import { AdminWallet } from 'src/entities/admin.wallet.entity';
 
 @Injectable()
 export class AdminService {
@@ -21,7 +28,11 @@ export class AdminService {
     private readonly riderRepository: Repository<Rider>,
     @InjectRepository(AdminActivity)
     private readonly activitiesRepository: Repository<AdminActivity>,
+    @InjectRepository(AdminNotification)
+    private readonly notificationRepository: Repository<AdminNotification>,
     private mailerService: MailerService,
+    @InjectRepository(AdminWallet)
+    private readonly walletRepository: Repository<AdminWallet>,
   ) {}
 
   async findAdmins(page: number, limit: number) {
@@ -451,5 +462,159 @@ export class AdminService {
       totalItems: total,
       perPage: limit,
     };
+  }
+
+  async updateAdminFCMToken(email_address: string, payload: UpdateFCMTokenDTO) {
+    console.log('FCM TOKEN PAYLOADD VVVENDODR CHECK ::: ', payload);
+
+    const admin = await this.adminRepository.findOne({
+      where: { email_address: email_address },
+    });
+    if (!admin)
+      throw new HttpException('Admin not found.', HttpStatus.NOT_FOUND);
+
+    admin.fcmToken = payload?.token ?? admin.fcmToken;
+    const updatedAdmin = await this.adminRepository.save(admin);
+
+    const { password, ...others } = updatedAdmin;
+    console.log('REMOVED PASWORD ::: ', password);
+
+    return {
+      message: '',
+      user: others,
+    };
+  }
+
+  async findAdminNotifications(page: number, limit: number) {
+    const skip = (page - 1) * limit; // Calculate the number of records to skip
+
+    const [data, total, unreadCount] = await Promise.all([
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .leftJoinAndSelect('notification.admin', 'admin')
+        .orderBy('notification.created_at', 'DESC')
+        .skip(skip) // Skip the records
+        .take(limit) // Limit the number of records returned
+        .getMany(), // Execute query to fetch data
+
+      this.notificationRepository
+        .createQueryBuilder('notification') // Alias for the table
+        .leftJoin('notification.admin', 'admin') // Join the related vendor table
+        .getCount(), // Count total records for pagination
+
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .leftJoin('notification.admin', 'admin')
+        .andWhere('notification.is_read = :isRead', { isRead: false }) // Count only unread notifications
+        .getCount(),
+    ]);
+
+    return {
+      data,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+      perPage: limit,
+      unreadNotifications: unreadCount, // Include unread count in the response
+    };
+  }
+
+  async markAllAsRead(adminID: string) {
+    await this.notificationRepository
+      .createQueryBuilder()
+      .update(AdminNotification)
+      .set({ is_read: true })
+      .where('admin.id = :adminID AND is_read = false', { adminID })
+      .execute();
+
+    return { message: '' };
+  }
+
+  async setWalletPin(email_address: string, payload: UpdateWalletPINDTO) {
+    if (!payload?.vendor_id) {
+      throw new HttpException('Vendor ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const admin = await this.adminRepository.findOne({
+      where: { email_address: email_address },
+      relations: ['vendor'],
+    });
+
+    if (!admin) {
+      throw new HttpException('Admin not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (
+      admin.role !== AdminRoles.SUPER_ADMIN &&
+      admin.access !== AdminAccess.READ_WRITE
+    ) {
+      throw new HttpException('You are forbidden!', HttpStatus.FORBIDDEN);
+    }
+
+    // Now find wallett
+    const wallet = await this.walletRepository.find();
+
+    if (!wallet || wallet?.length < 1) {
+      throw new HttpException('Admin wallet not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (admin?.wallet_pin) {
+      // It has been addded before, so compare with new pin before updting
+      if (!payload?.old_pin) {
+        throw new HttpException(
+          'old wallet pin is required',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const savedPin = admin?.wallet_pin;
+      if (admin && !bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        throw new HttpException(
+          'Incorrect wallet pin entered',
+          HttpStatus.BAD_REQUEST,
+        );
+      } else if (admin && bcrypt.compareSync(payload?.old_pin, savedPin)) {
+        // All good
+        // Noow encodde new pin
+        const encodedPassword = await encodePassword(payload.new_pin);
+        admin.wallet_pin = encodedPassword;
+        admin.updated_at = new Date();
+
+        await this.adminRepository.save(admin);
+        return {
+          message: 'Wallet pin updated successfully',
+        };
+      }
+    } else {
+      // Create new pin
+      const encodedPassword = await encodePassword(payload.new_pin);
+      admin.wallet_pin = encodedPassword;
+      admin.updated_at = new Date();
+
+      await this.adminRepository.save(admin);
+      return {
+        message: 'Wallet pin set successfully',
+      };
+    }
+  }
+
+  async findAdminWallet() {
+    // Retrieve the wallet belonging to the vendor
+    const wallet = await this.walletRepository.find();
+
+    if (!wallet || wallet?.length < 1) {
+      // No wallet ccreated. Now create one here
+      const newWallet = this.walletRepository.create({
+        balance: 0,
+        prev_balance: 0,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const createdWallet = await this.walletRepository.save(newWallet);
+      return createdWallet;
+    }
+
+    return wallet[0];
   }
 }

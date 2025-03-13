@@ -38,6 +38,12 @@ export class OrdersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id')
+  async getOrder(@Param('id') id: string) {
+    return await this.orderService.findOrder(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('all/status')
   async allbyStatus(
     @Query('status') status: OrderStatus,

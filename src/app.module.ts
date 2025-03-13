@@ -79,6 +79,9 @@ import { WorkHour } from './entities/working.hour.entity';
 import { VendorLocation } from './entities/vendor.location.entity';
 import { DummyOrder } from './entities/dummy.order.entity';
 import { AdminWallet } from './entities/admin.wallet.entity';
+import { AdminNotification } from './entities/admin.notification.entity';
+import { VendorTransactions } from './entities/vendor.transactions.entity';
+import { RiderTransactions } from './entities/rider.transactions.entity';
 
 @Module({
   imports: [
@@ -142,6 +145,9 @@ import { AdminWallet } from './entities/admin.wallet.entity';
           SMSProviders,
           CustomerWallet,
           VendorLocation,
+          RiderTransactions,
+          VendorTransactions,
+          AdminNotification,
           SystemTransactions,
           CustomerFavourites,
           CustomerTransactions,

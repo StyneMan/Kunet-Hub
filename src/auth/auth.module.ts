@@ -62,6 +62,7 @@ import { AdminWallet } from 'src/entities/admin.wallet.entity';
 import { VendorNotification } from 'src/entities/vendor.notification.entity';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { VendorReview } from 'src/entities/vendor.review.entity';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { VendorReview } from 'src/entities/vendor.review.entity';
       PendingReviews,
       VendorLocation,
       ShippingAddress,
+      AdminNotification,
       RiderTransactions,
       CustomerFavourites,
       CustomerTransactions,

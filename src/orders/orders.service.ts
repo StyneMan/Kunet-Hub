@@ -10,7 +10,7 @@ import { Customer } from 'src/entities/customer.entity';
 import { Operator } from 'src/entities/operator.entity';
 import { Order } from 'src/entities/order.entity';
 import { UserType } from 'src/enums/user.type.enum';
-import { LessThan, LessThanOrEqual, Repository } from 'typeorm';
+import { In, LessThan, LessThanOrEqual, Repository } from 'typeorm';
 import { CreateOrderDTO } from './dtos/createorder.dto';
 import { Vendor } from 'src/entities/vendor.entity';
 import { UpdateOrderDTO } from './dtos/updateorder.dto';
@@ -44,11 +44,17 @@ import { NotificationService } from 'src/notification/notification.service';
 import { PushNotificationType } from 'src/enums/push.notification.type.enum';
 import { AdminWallet } from 'src/entities/admin.wallet.entity';
 import { VendorNotification } from 'src/entities/vendor.notification.entity';
-import { VendorNotificationType } from 'src/enums/vendor.notification.type.enum';
+import {
+  AdminNotificationType,
+  VendorNotificationType,
+} from 'src/enums/vendor.notification.type.enum';
 import { RiderReview } from 'src/entities/rider.review.entity';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { RevieweeType, ReviewerType } from 'src/enums/reviewer.type.enum';
 import { VendorReview } from 'src/entities/vendor.review.entity';
+import { Admin } from 'src/entities/admin.entity';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
+import { AdminRoles } from 'src/enums/admin.roles.enum';
 
 @Injectable()
 export class OrdersService {
@@ -81,8 +87,12 @@ export class OrdersService {
     private riderWalletRepository: Repository<RiderWallet>,
     @InjectRepository(VendorWallet)
     private vendorWalletRepository: Repository<VendorWallet>,
+    @InjectRepository(Admin)
+    private adminRepository: Repository<Admin>,
     @InjectRepository(AdminWallet)
     private adminWalletRepository: Repository<AdminWallet>,
+    @InjectRepository(AdminNotification)
+    private adminNotificationRepository: Repository<AdminNotification>,
     @InjectRepository(VendorNotification)
     private vendorNotificationRepository: Repository<VendorNotification>,
     @InjectRepository(RiderReview)
@@ -733,6 +743,17 @@ export class OrdersService {
     }
   }
 
+  async findOrder(id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id: id },
+      relations: ['vendor', 'vendor_location', 'customer', 'rider'],
+    });
+
+    if (!order) return null;
+
+    return order;
+  }
+
   async all(page: number, limit: number, order_type: OrderType) {
     if (order_type) {
       const skip = (page - 1) * limit; // Calculate the number of records to skip
@@ -885,7 +906,7 @@ export class OrdersService {
       .leftJoin('order.customer', 'customer')
       .leftJoin('order.vendor_location', 'vendor_location')
       .where('order.order_status = :status', { status: OrderStatus.COMPLETED })
-      .andWhere('order.vendor_locationId = :vendorLocationId', {
+      .andWhere('vendor_location.id = :vendorLocationId', {
         vendorLocationId,
       });
 
@@ -1423,7 +1444,7 @@ export class OrdersService {
       );
 
       try {
-        // notify customerF with FCM
+        // notify customer with FCM
         await this.notificationservice.sendPushNotification(
           order?.customer?.fcmToken,
           {
@@ -1490,19 +1511,7 @@ export class OrdersService {
         UserType.CUSTOMER,
         'refresh-orders',
         {
-          message: ' ',
-        },
-      );
-
-      // Now notify the customer via socket here
-      this.socketGateway.sendNotification(
-        order.customer?.id,
-        UserType.CUSTOMER,
-        {
-          title: 'Order Pickup Ready',
-          message:
-            'Your recent order has been processed and is ready for pickup',
-          data: updatedOrder,
+          message: '',
         },
       );
 
@@ -1707,6 +1716,36 @@ export class OrdersService {
           noti.rider = order.rider;
           noti.vendor = order?.vendor;
           await this.vendorNotificationRepository.save(noti);
+        } else {
+          // find all admins
+          const admins = await this.adminRepository.find({
+            where: {
+              role: In([AdminRoles.SUPER_ADMIN, AdminRoles.MANAGER]),
+            },
+          });
+
+          for (let index = 0; index < admins.length; index++) {
+            const admin = admins[index];
+            await this.notificationservice.sendPushNotification(
+              admin?.fcmToken,
+              {
+                message:
+                  'Rider has successfully delivered paackage to recepient',
+                notificatioonType: PushNotificationType.ORDER,
+                title: 'Package Delivered',
+                itemId: order?.id,
+              },
+            );
+
+            const noti = this.adminNotificationRepository.create({
+              message: 'Rider has successfully delivered package',
+              is_read: false,
+              notification_type: AdminNotificationType.ORDER_NOTIFICATION,
+              created_at: new Date(),
+            });
+            noti.admin = admin;
+            await this.adminNotificationRepository.save(noti);
+          }
         }
       } catch (error) {
         console.error(error);
@@ -1814,15 +1853,6 @@ export class OrdersService {
       },
     );
 
-    this.socketGateway.sendEvent(
-      selectedRider?.id,
-      UserType.RIDER,
-      'refresh-orders',
-      {
-        message: `New order assigned: ${order.id}`,
-      },
-    );
-
     try {
       await this.notificationservice.sendPushNotification(
         selectedRider?.fcmToken,
@@ -1838,12 +1868,43 @@ export class OrdersService {
         await this.notificationservice.sendPushNotification(
           order?.vendor_location?.fcmToken,
           {
-            message: `New Order From ${order?.vendor?.name} ${order?.vendor_location?.branch_name}`,
+            message: `Order has been assigned to rider ${selectedRider?.first_name} ${selectedRider?.last_name}`,
             notificatioonType: PushNotificationType.ORDER,
-            title: 'You Have A New Order',
+            title: 'Order Assigned to Rider',
             itemId: order?.id,
           },
         );
+      } else {
+        // find all admins
+        const admins = await this.adminRepository.find({
+          where: {
+            role: In([
+              AdminRoles.SUPER_ADMIN,
+              AdminRoles.MANAGER,
+              AdminRoles.SUPPORT,
+            ]),
+          },
+        });
+
+        for (let index = 0; index < admins.length; index++) {
+          const admin = admins[index];
+
+          await this.notificationservice.sendPushNotification(admin?.fcmToken, {
+            message: `Order has been assigned to rider ${selectedRider?.first_name} ${selectedRider?.last_name}`,
+            notificatioonType: PushNotificationType.ORDER,
+            title: 'Order Assigned to Rider',
+            itemId: order?.id,
+          });
+
+          const noti = this.adminNotificationRepository.create({
+            message: 'Package assigned to rider successfully',
+            is_read: false,
+            notification_type: AdminNotificationType.RIDER_NOTIFICATION,
+            created_at: new Date(),
+          });
+          noti.admin = admin;
+          await this.adminNotificationRepository.save(noti);
+        }
       }
 
       await this.notificationservice.sendPushNotification(
@@ -1954,302 +2015,769 @@ export class OrdersService {
   }
 
   // Runs every minute to check orders
-  @Cron(CronExpression.EVERY_MINUTE)
+  // @Cron(CronExpression.EVERY_5_MINUTES)
+  // async checkAndCompleteOrdersOldd() {
+  //   this.logger.log('Checking for orders to auto-complete...');
+
+  //   const now = new Date();
+  //   const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000); // 10 minutes ago
+
+  //   const ordersToUpdate = await this.orderRepository.find({
+  //     where: {
+  //       order_status: OrderStatus.DELIVERED, // Only check delivered orders
+  //       order_delivered_at: LessThanOrEqual(tenMinutesAgo),
+  //     },
+  //     relations: ['customer', 'rider', 'vendor'],
+  //   });
+
+  //   console.log('ORDERS TO COMPLETE ::: ', ordersToUpdate);
+
+  //   if (ordersToUpdate.length > 0) {
+  //     for (const order of ordersToUpdate) {
+  //       if (order?.order_status === OrderStatus.DELIVERED) {
+  //         // Restaurant snd store orders
+  //         if (order?.order_type !== OrderType.PARCEL_ORDER) {
+  //           const rider = await this.riderRepository.findOne({
+  //             where: { id: order?.rider?.id },
+  //           });
+
+  //           if (rider) {
+  //             // First check if transaction has been ccreated
+  //             const riderTransaction =
+  //               await this.riderTransactionRepository.findOne({
+  //                 where: { tx_ref: order?.order_id },
+  //                 relations: ['rider'],
+  //               });
+
+  //             if (!riderTransaction) {
+  //               // Fund this rider's wallet
+  //               const riderWallet = await this.riderWalletRepository.findOne({
+  //                 where: { rider: { id: rider?.id } },
+  //               });
+
+  //               if (!riderWallet) {
+  //                 return;
+  //               }
+
+  //               // Distribute profits
+  //               const newRiderTransaction =
+  //                 this.riderTransactionRepository.create({
+  //                   amount: order?.rider_commission,
+  //                   fee: 0,
+  //                   status: 'success',
+  //                   summary: 'Payment for order delivery',
+  //                   transaction_type: TransactionType.CREDIT,
+  //                   tx_ref: order?.order_id,
+  //                   created_at: new Date(),
+  //                   updated_at: new Date(),
+  //                 });
+
+  //               newRiderTransaction.rider = rider;
+  //               const updated =
+  //                 await this.riderTransactionRepository.save(
+  //                   newRiderTransaction,
+  //                 );
+
+  //               riderWallet.prev_balance = riderWallet.balance;
+  //               riderWallet.balance =
+  //                 riderWallet.balance + order?.rider_commission;
+  //               await this.riderWalletRepository.save(riderWallet);
+
+  //               this.socketGateway.sendEvent(
+  //                 rider?.id,
+  //                 UserType.RIDER,
+  //                 'refresh-wallet',
+  //                 { message: 'Refresh wallet now', data: updated },
+  //               );
+
+  //               try {
+  //                 await this.notificationservice.sendPushNotification(
+  //                   order?.rider?.fcmToken,
+  //                   {
+  //                     message:
+  //                       'Order completed and your wallet has been credited',
+  //                     notificatioonType: PushNotificationType.ORDER,
+  //                     title: 'Order Completed',
+  //                     itemId: order?.id,
+  //                   },
+  //                 );
+  //               } catch (error) {
+  //                 console.error(error);
+  //               }
+  //             }
+  //           } else {
+  //             // DO nothing
+  //           }
+
+  //           const vendor = await this.vendorRepository.findOne({
+  //             where: { id: order?.vendor?.id },
+  //           });
+
+  //           if (vendor) {
+  //             const vendorTransaction =
+  //               await this.vendorTransactionRepository.findOne({
+  //                 where: { tx_ref: order?.order_id },
+  //                 relations: ['vendor'],
+  //               });
+  //             if (!vendorTransaction) {
+  //               const couponDiscount = order.coupon_discount;
+  //               const amt = order.total_amount - couponDiscount;
+  //               // Now create transactions here for fastbuy, vendor and rider
+  //               // Distribute profits
+  //               const newVendorTransaction =
+  //                 this.vendorTransactionRepository.create({
+  //                   amount: amt,
+  //                   fee: 0,
+  //                   status: 'success',
+  //                   summary: 'Payment for order purchase',
+  //                   transaction_type: TransactionType.CREDIT,
+  //                   tx_ref: order?.order_id,
+  //                   created_at: new Date(),
+  //                   updated_at: new Date(),
+  //                 });
+
+  //               newVendorTransaction.vendor = vendor;
+  //               const savedTransaction =
+  //                 await this.vendorTransactionRepository.save(
+  //                   newVendorTransaction,
+  //                 );
+
+  //               const vendorWallet = await this.vendorWalletRepository.findOne({
+  //                 where: { vendor: { id: vendor?.id } },
+  //               });
+
+  //               if (!vendorWallet) {
+  //                 return;
+  //               }
+
+  //               vendorWallet.prev_balance = vendorWallet.balance;
+  //               vendorWallet.balance = vendorWallet.balance + amt;
+  //               await this.vendorWalletRepository.save(vendorWallet);
+
+  //               this.socketGateway.sendVendorEvent(
+  //                 vendor?.id,
+  //                 'refresh-wallet',
+  //                 {
+  //                   message: 'Refresh wallet now',
+  //                   data: savedTransaction,
+  //                 },
+  //               );
+
+  //               try {
+  //                 await this.notificationservice.sendPushNotification(
+  //                   order?.vendor_location?.fcmToken,
+  //                   {
+  //                     message:
+  //                       'Order completed and your wallet has been credited',
+  //                     notificatioonType: PushNotificationType.ORDER,
+  //                     title: 'Order Completed',
+  //                     itemId: order?.id,
+  //                   },
+  //                 );
+
+  //                 // Now check if vvendor location is rated by customer else add pending review here
+  //                 const customerRated =
+  //                   await this.vendorReviewRepository.findOne({
+  //                     where: {
+  //                       customer: { id: order?.customer?.id },
+  //                       vendor_location: { id: order?.vendor_location?.id },
+  //                     },
+  //                   });
+
+  //                 if (!customerRated) {
+  //                   // Customer has not rated this rider before.
+  //                   // So add to pending reviews for this customer
+  //                   const newPendingReview =
+  //                     this.pendingReviewRepository.create({
+  //                       reviewee_id: order?.vendor_location?.id,
+  //                       reviewee_type: RevieweeType.VENDOR,
+  //                       reviewer_type: ReviewerType.CUSTOMER,
+  //                       created_at: new Date(),
+  //                       updated_at: new Date(),
+  //                     });
+  //                   newPendingReview.customer = order?.customer;
+  //                   newPendingReview.vendorReviewee = order?.vendor_location;
+
+  //                   await this.pendingReviewRepository.save(newPendingReview);
+
+  //                   // Now notify customer app to review this rider
+  //                   this.socketGateway.sendEvent(
+  //                     order.customer?.id,
+  //                     UserType.CUSTOMER,
+  //                     'refresh-pending-reviews',
+  //                     {
+  //                       message: '',
+  //                     },
+  //                   );
+  //                 }
+  //               } catch (error) {
+  //                 console.error(error);
+  //               }
+  //             } else {
+  //               // Do nothing here
+  //             }
+  //           }
+
+  //           const systemTransaction =
+  //             await this.systemTransactionRepository.findOne({
+  //               where: { tx_ref: order?.order_id },
+  //               relations: ['order'],
+  //             });
+
+  //           if (!systemTransaction) {
+  //             const remDeliveryFee =
+  //               order.delivery_fee - order?.rider_commission;
+  //             const amtSys = order.service_charge + remDeliveryFee;
+  //             const newSystemTransaction =
+  //               this.systemTransactionRepository.create({
+  //                 amount: amtSys,
+  //                 fee: 0,
+  //                 status: 'success',
+  //                 summary: 'Payment for order purchase',
+  //                 transaction_type: TransactionType.CREDIT,
+  //                 tx_ref: order?.order_id,
+  //                 created_at: new Date(),
+  //                 updated_at: new Date(),
+  //               });
+
+  //             newSystemTransaction.order = order;
+  //             const updatedSys =
+  //               await this.systemTransactionRepository.save(
+  //                 newSystemTransaction,
+  //               );
+  //             console.log('UPDATED SYSTEM NOTIF ::: ', updatedSys);
+
+  //             // find all admins
+  //             const admins = await this.adminRepository.find({
+  //               where: {
+  //                 role: In([AdminRoles.SUPER_ADMIN]),
+  //               },
+  //             });
+
+  //             if (admins) {
+  //               for (let index = 0; index < admins.length; index++) {
+  //                 const admin = admins[index];
+
+  //                 await this.notificationservice.sendPushNotification(
+  //                   admin?.fcmToken,
+  //                   {
+  //                     message: `Order is completed and your wallet has been funded`,
+  //                     notificatioonType: PushNotificationType.WALLET,
+  //                     title: 'Wallet funded',
+  //                     itemId: order?.id,
+  //                   },
+  //                 );
+
+  //                 const noti = this.adminNotificationRepository.create({
+  //                   message: 'Wallet funded from order completion',
+  //                   is_read: false,
+  //                   notification_type:
+  //                     AdminNotificationType.WALLET_NOTIFICATION,
+  //                   created_at: new Date(),
+  //                 });
+  //                 noti.admin = admin;
+  //                 await this.adminNotificationRepository.save(noti);
+  //               }
+  //             } else {
+  //               // Do nothing here
+  //             }
+  //           }
+
+  //           // notify customer with FCM
+  //           await this.notificationservice.sendPushNotification(
+  //             order?.customer?.fcmToken,
+  //             {
+  //               message: 'Your order is completed successfully',
+  //               notificatioonType: PushNotificationType.ORDER,
+  //               title: 'Order Completed',
+  //               itemId: order?.id,
+  //             },
+  //           );
+
+  //           // Create vendor notification here
+  //           const vendorNotification = this.vendorNotificationRepository.create(
+  //             {
+  //               is_read: false,
+  //               message: `Order from ${order?.customer?.first_name} ${order?.customer?.last_name} is completed`,
+  //               notification_type: VendorNotificationType.ORDER_NOTIFICATION,
+  //               created_at: new Date(),
+  //               updated_at: new Date(),
+  //             },
+  //           );
+  //           vendorNotification.vendor = order.vendor;
+  //           await this.vendorNotificationRepository.save(vendorNotification);
+
+  //           return {
+  //             message: 'Transaction completed successfully',
+  //           };
+  //         } else if (order?.order_type === OrderType.PARCEL_ORDER) {
+  //           const rider = await this.riderRepository.findOne({
+  //             where: { id: order?.rider?.id },
+  //           });
+
+  //           if (rider) {
+  //             const riderWallet = await this.riderWalletRepository.findOne({
+  //               where: { rider: { id: rider?.id } },
+  //               relations: ['rider'],
+  //             });
+
+  //             if (!riderWallet) {
+  //               return;
+  //             }
+
+  //             riderWallet.prev_balance = riderWallet.balance;
+  //             riderWallet.balance =
+  //               riderWallet.balance + order?.rider_commission;
+  //             await this.riderWalletRepository.save(riderWallet);
+  //             // Now create transactions here for fastbuy, vendor and rider
+  //             // Distribute profits
+  //             const riderTransaction = this.riderTransactionRepository.create({
+  //               amount: order?.rider_commission,
+  //               fee: 0,
+  //               status: 'success',
+  //               summary: 'Payment for order delivery',
+  //               transaction_type: TransactionType.CREDIT,
+  //               tx_ref: order?.order_id,
+  //               created_at: new Date(),
+  //               updated_at: new Date(),
+  //             });
+
+  //             riderTransaction.rider = rider;
+  //             const updated =
+  //               await this.riderTransactionRepository.save(riderTransaction);
+
+  //             this.socketGateway.sendEvent(
+  //               rider?.id,
+  //               UserType.RIDER,
+  //               'refresh-wallet',
+  //               { message: 'Refresh wallet now', data: updated },
+  //             );
+  //           }
+
+  //           const remDeliveryFee = order.delivery_fee - order?.rider_commission;
+  //           const amt = order.service_charge + remDeliveryFee;
+  //           const systemTransaction = this.systemTransactionRepository.create({
+  //             amount: amt,
+  //             fee: 0,
+  //             status: 'success',
+  //             summary: 'Payment for order purchase',
+  //             transaction_type: TransactionType.CREDIT,
+  //             tx_ref: order?.order_id,
+  //             created_at: new Date(),
+  //             updated_at: new Date(),
+  //           });
+
+  //           systemTransaction.order = order;
+  //           const updated =
+  //             await this.systemTransactionRepository.save(systemTransaction);
+  //           console.log('UPDATED SYSTEM NOTIF ::: ', updated);
+
+  //           // find all admins
+  //           const admins = await this.adminRepository.find({
+  //             where: {
+  //               role: In([AdminRoles.SUPER_ADMIN]),
+  //             },
+  //           });
+
+  //           if (admins) {
+  //             for (let index = 0; index < admins.length; index++) {
+  //               const admin = admins[index];
+
+  //               await this.notificationservice.sendPushNotification(
+  //                 admin?.fcmToken,
+  //                 {
+  //                   message: `Order is completed and your wallet has been funded`,
+  //                   notificatioonType: PushNotificationType.WALLET,
+  //                   title: 'Wallet funded',
+  //                   itemId: order?.id,
+  //                 },
+  //               );
+
+  //               const noti = this.adminNotificationRepository.create({
+  //                 message: 'Wallet funded from order completion',
+  //                 is_read: false,
+  //                 notification_type: AdminNotificationType.WALLET_NOTIFICATION,
+  //                 created_at: new Date(),
+  //               });
+  //               noti.admin = admin;
+  //               await this.adminNotificationRepository.save(noti);
+  //             }
+  //           }
+
+  //           // notify customer with FCM
+  //           await this.notificationservice.sendPushNotification(
+  //             order?.customer?.fcmToken,
+  //             {
+  //               message: 'Your package is delivered successfully',
+  //               notificatioonType: PushNotificationType.ORDER,
+  //               title: 'Package Completed',
+  //               itemId: order?.id,
+  //             },
+  //           );
+
+  //           return {
+  //             message: 'Transaction completed successfully',
+  //           };
+  //         }
+  //       } else {
+  //         // Do nothing
+  //       }
+
+  //       order.order_status = OrderStatus.COMPLETED;
+  //       await this.orderRepository.save(order);
+  //     }
+  //   } else {
+  //     this.logger.log('No orders to update.');
+  //   }
+  // }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async checkAndCompleteOrders() {
     this.logger.log('Checking for orders to auto-complete...');
 
     const now = new Date();
     const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000); // 10 minutes ago
 
+    // Fetch all delivered orders older than 10 minutes
     const ordersToUpdate = await this.orderRepository.find({
       where: {
-        order_status: OrderStatus.DELIVERED, // Only check delivered orders
+        order_status: OrderStatus.DELIVERED,
         order_delivered_at: LessThanOrEqual(tenMinutesAgo),
       },
-      relations: ['customer', 'rider', 'vendor'],
+      relations: ['customer', 'rider', 'vendor', 'vendor_location'],
     });
 
-    if (ordersToUpdate.length > 0) {
-      for (const order of ordersToUpdate) {
-        order.order_status = OrderStatus.COMPLETED;
-        await this.orderRepository.save(order);
+    if (ordersToUpdate.length === 0) {
+      this.logger.log('No orders to update.');
+      return;
+    }
 
-        if (order?.order_type !== OrderType.PARCEL_ORDER) {
-          const rider = await this.riderRepository.findOne({
-            where: { id: order?.rider?.id },
-          });
-
-          if (rider) {
-            // Fund this ridder's wallet
-            const riderWallet = await this.riderWalletRepository.findOne({
-              where: { rider: { id: rider?.id } },
-              relations: ['rider'],
+    for (const order of ordersToUpdate) {
+      try {
+        await this.orderRepository.manager.transaction(
+          async (entityManager) => {
+            // ✅ FIRST: Update the status to prevent duplicate processing
+            await entityManager.update(this.orderRepository.target, order.id, {
+              order_status: OrderStatus.COMPLETED,
             });
 
-            if (!riderWallet) {
-              return;
-            }
-
-            riderWallet.prev_balance = riderWallet.balance;
-            riderWallet.balance = riderWallet.balance + order?.rider_commission;
-            await this.riderWalletRepository.save(riderWallet);
-            // Now create transactions here for fastbuy, vendor and rider
-            // Distribute profits
-            const riderTransaction = this.riderTransactionRepository.create({
-              amount: order?.rider_commission,
-              fee: 0,
-              status: 'success',
-              summary: 'Payment for order delivery',
-              transaction_type: TransactionType.CREDIT,
-              tx_ref: order?.order_id,
-              created_at: new Date(),
-              updated_at: new Date(),
-            });
-
-            riderTransaction.rider = rider;
-            const updated =
-              await this.riderTransactionRepository.save(riderTransaction);
-
-            this.socketGateway.sendEvent(
-              rider?.id,
-              UserType.RIDER,
-              'refresh-wallet',
-              { message: 'Refresh wallet now', data: updated },
+            const rider = await entityManager.findOne(
+              this.riderRepository.target,
+              {
+                where: { id: order?.rider?.id },
+              },
             );
 
-            try {
-              await this.notificationservice.sendPushNotification(
-                order?.rider?.fcmToken,
+            if (!rider) return;
+
+            // ✅ Check if a transaction already exists
+            const existingTransaction = await entityManager.findOne(
+              this.riderTransactionRepository.target,
+              {
+                where: { tx_ref: order?.order_id },
+              },
+            );
+
+            if (!existingTransaction) {
+              // Process rider's payment
+              const riderWallet = await entityManager.findOne(
+                this.riderWalletRepository.target,
                 {
-                  message: 'Order completed and your wallet has been credited',
-                  notificatioonType: PushNotificationType.ORDER,
-                  title: 'Order Completed',
-                  itemId: order?.id,
-                },
-              );
-            } catch (error) {
-              console.error(error);
-            }
-          }
-
-          const vendor = await this.vendorRepository.findOne({
-            where: { id: order?.vendor?.id },
-          });
-
-          if (vendor) {
-            const vendorWallet = await this.vendorWalletRepository.findOne({
-              where: { vendor: { id: vendor?.id } },
-              relations: ['vendor'],
-            });
-
-            if (!vendorWallet) {
-              return;
-            }
-
-            const couponDiscount = order.coupon_discount;
-            const amt = order.total_amount - couponDiscount;
-
-            vendorWallet.prev_balance = vendorWallet.balance;
-            vendorWallet.balance = vendorWallet.balance + amt;
-            await this.vendorWalletRepository.save(vendorWallet);
-
-            // Now create transactions here for fastbuy, vendor and rider
-            // Distribute profits
-            const vendorTransaction = this.vendorTransactionRepository.create({
-              amount: amt,
-              fee: 0,
-              status: 'success',
-              summary: 'Payment for order purchase',
-              transaction_type: TransactionType.CREDIT,
-              tx_ref: order?.order_id,
-              created_at: new Date(),
-              updated_at: new Date(),
-            });
-
-            vendorTransaction.vendor = vendor;
-            const updated =
-              await this.vendorTransactionRepository.save(vendorTransaction);
-
-            this.socketGateway.sendVendorEvent(vendor?.id, 'refresh-wallet', {
-              message: 'Refresh wallet now',
-              data: updated,
-            });
-
-            try {
-              await this.notificationservice.sendPushNotification(
-                order?.vendor_location?.fcmToken,
-                {
-                  message: 'Order completed and your wallet has been credited',
-                  notificatioonType: PushNotificationType.ORDER,
-                  title: 'Order Completed',
-                  itemId: order?.id,
+                  where: { rider: { id: rider?.id } },
                 },
               );
 
-              // Now check if vvendor location is rated by customer else add pending review here
-              const customerRated = await this.vendorReviewRepository.findOne({
-                where: {
-                  customer: { id: order?.customer?.id },
-                  vendor_location: { id: order?.vendor_location?.id },
-                },
-              });
+              if (!riderWallet) return;
 
-              if (!customerRated) {
-                // Customer has not rated this rider before.
-                // So add to pending reviews for this customer
-                const newPendingReview = this.pendingReviewRepository.create({
-                  reviewee_id: order?.vendor_location?.id,
-                  reviewee_type: RevieweeType.VENDOR,
-                  reviewer_type: ReviewerType.CUSTOMER,
+              // ✅ Create new rider transaction
+              const newRiderTransaction = entityManager.create(
+                this.riderTransactionRepository.target,
+                {
+                  amount: order?.rider_commission,
+                  fee: 0,
+                  status: 'success',
+                  summary: 'Earning for order delivery',
+                  transaction_type: TransactionType.CREDIT,
+                  tx_ref: order?.order_id,
                   created_at: new Date(),
                   updated_at: new Date(),
-                });
-                newPendingReview.customer = order?.customer;
-                newPendingReview.vendorReviewee = order?.vendor_location;
+                  rider: rider,
+                },
+              );
 
-                await this.pendingReviewRepository.save(newPendingReview);
+              await entityManager.save(newRiderTransaction);
 
-                // Now notify customer app to review this rider
-                this.socketGateway.sendEvent(
-                  order.customer?.id,
-                  UserType.CUSTOMER,
-                  'refresh-pending-reviews',
+              // ✅ Update rider wallet balance
+              riderWallet.prev_balance = riderWallet.balance;
+              riderWallet.balance += order?.rider_commission;
+              await entityManager.save(riderWallet);
+
+              this.socketGateway.sendEvent(
+                rider?.id,
+                UserType.RIDER,
+                'refresh-wallet',
+                { message: 'Refresh wallet now', data: null },
+              );
+
+              try {
+                await this.notificationservice.sendPushNotification(
+                  order?.rider?.fcmToken,
                   {
-                    message: '',
+                    message:
+                      'Order completed and your wallet has been credited',
+                    notificatioonType: PushNotificationType.ORDER,
+                    title: 'Order Completed',
+                    itemId: order?.id,
                   },
                 );
+              } catch (error) {
+                console.error(error);
               }
-            } catch (error) {
-              console.error(error);
+
+              // Check order type
+              if (order.order_type !== OrderType.PARCEL_ORDER) {
+                // now handle vendor
+                const vendor = await entityManager.findOne(
+                  this.vendorRepository.target,
+                  {
+                    where: { id: order?.vendor?.id },
+                  },
+                );
+
+                if (!vendor) return;
+
+                // ✅ Check if a transaction already exists
+                const existingVendorTransaction = await entityManager.findOne(
+                  this.vendorTransactionRepository.target,
+                  {
+                    where: { tx_ref: order?.order_id },
+                  },
+                );
+
+                if (!existingVendorTransaction) {
+                  const couponDiscount = order.coupon_discount;
+                  const vendorEarning = order.total_amount - couponDiscount;
+                  // Process vendor's payment
+                  const vendorWallet = await entityManager.findOne(
+                    this.vendorWalletRepository.target,
+                    {
+                      where: { vendor: { id: vendor?.id } },
+                    },
+                  );
+
+                  if (!vendorWallet) return;
+
+                  // ✅ Create new vendor transaction
+                  const newVendorTransaction = entityManager.create(
+                    this.vendorTransactionRepository.target,
+                    {
+                      amount: vendorEarning,
+                      fee: 0,
+                      status: 'success',
+                      summary: 'Earning from order purchase',
+                      transaction_type: TransactionType.CREDIT,
+                      tx_ref: order?.order_id,
+                      vendor_location: order?.vendor_location,
+                      created_at: new Date(),
+                      updated_at: new Date(),
+                      vendor: vendor,
+                    },
+                  );
+
+                  await entityManager.save(newVendorTransaction);
+
+                  // ✅ Update rider wallet balance
+                  vendorWallet.prev_balance = vendorWallet.balance;
+                  vendorWallet.balance += vendorEarning;
+                  await entityManager.save(vendorWallet);
+
+                  this.socketGateway.sendVendorEvent(
+                    vendor?.id,
+                    'refresh-wallet',
+                    {
+                      message: 'Refresh wallet now',
+                      data: newVendorTransaction,
+                    },
+                  );
+
+                  try {
+                    await this.notificationservice.sendPushNotification(
+                      order?.vendor_location?.fcmToken,
+                      {
+                        message:
+                          'Order completed and your wallet has been credited',
+                        notificatioonType: PushNotificationType.ORDER,
+                        title: 'Order Completed',
+                        itemId: order?.id,
+                      },
+                    );
+
+                    // Now check if vvendor location is rated by customer else add pending review here
+                    const customerRated =
+                      await this.vendorReviewRepository.findOne({
+                        where: {
+                          customer: { id: order?.customer?.id },
+                          vendor_location: { id: order?.vendor_location?.id },
+                        },
+                      });
+
+                    if (!customerRated) {
+                      // Customer has not rated this rider before.
+                      // So add to pending reviews for this customer
+                      const newPendingReview =
+                        this.pendingReviewRepository.create({
+                          reviewee_id: order?.vendor_location?.id,
+                          reviewee_type: RevieweeType.VENDOR,
+                          reviewer_type: ReviewerType.CUSTOMER,
+                          created_at: new Date(),
+                          updated_at: new Date(),
+                        });
+                      newPendingReview.customer = order?.customer;
+                      newPendingReview.vendorReviewee = order?.vendor_location;
+
+                      await this.pendingReviewRepository.save(newPendingReview);
+
+                      // Now notify customer app to review this rider
+                      this.socketGateway.sendEvent(
+                        order.customer?.id,
+                        UserType.CUSTOMER,
+                        'refresh-pending-reviews',
+                        {
+                          message: '',
+                        },
+                      );
+                    }
+
+                    // notify customer with FCM
+                    await this.notificationservice.sendPushNotification(
+                      order?.customer?.fcmToken,
+                      {
+                        message: 'Your order is completed successfully',
+                        notificatioonType: PushNotificationType.ORDER,
+                        title: 'Order Completed',
+                        itemId: order?.id,
+                      },
+                    );
+                  } catch (error) {
+                    console.error(error);
+                  }
+
+                  // Create vendor notification here
+                  const vendorNotification =
+                    this.vendorNotificationRepository.create({
+                      is_read: false,
+                      message: `Order from ${order?.customer?.first_name} ${order?.customer?.last_name} is completed`,
+                      notification_type:
+                        VendorNotificationType.ORDER_NOTIFICATION,
+                      created_at: new Date(),
+                      updated_at: new Date(),
+                    });
+                  vendorNotification.vendor = order.vendor;
+                  await this.vendorNotificationRepository.save(
+                    vendorNotification,
+                  );
+                }
+              } else {
+                // ✅ Check if a transaction already exists
+                const existingSystemTransaction = await entityManager.findOne(
+                  this.systemTransactionRepository.target,
+                  {
+                    where: { tx_ref: order?.order_id },
+                  },
+                );
+
+                let adminWallet: AdminWallet;
+
+                if (!existingSystemTransaction) {
+                  // Process vendor's payment
+                  const adminWallets = await entityManager.find(
+                    this.adminWalletRepository.target,
+                  );
+
+                  if (adminWallets.length < 1) {
+                    // Does ot exist. Create new here
+                    const newAdminWallet = this.adminWalletRepository.create({
+                      balance: 0,
+                      prev_balance: 0,
+                      created_at: new Date(),
+                      updated_at: new Date(),
+                    });
+
+                    const savedWallet =
+                      await this.adminWalletRepository.save(newAdminWallet);
+                    adminWallet = savedWallet;
+
+                    adminWallet = adminWallets[0];
+                    // if (!vendorWallet) return;
+
+                    const remDeliveryFee =
+                      order.delivery_fee - order?.rider_commission;
+                    const amt = order.service_charge + remDeliveryFee;
+
+                    // ✅ Create new system transaction
+                    const newSystemTransaction = entityManager.create(
+                      this.systemTransactionRepository.target,
+                      {
+                        amount: amt,
+                        fee: 0,
+                        status: 'success',
+                        summary: 'Payment for order delivery',
+                        transaction_type: TransactionType.CREDIT,
+                        tx_ref: order?.order_id,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                        order: order,
+                      },
+                    );
+
+                    await entityManager.save(newSystemTransaction);
+
+                    // ✅ Update admin wallet balance
+                    adminWallet.prev_balance = adminWallet.balance;
+                    adminWallet.balance += amt;
+                    await entityManager.save(adminWallet);
+                  } else {
+                    adminWallet = adminWallets[0];
+
+                    const remDeliveryFee =
+                      order.delivery_fee - order?.rider_commission;
+                    const amt = order.service_charge + remDeliveryFee;
+
+                    // ✅ Create new system transaction
+                    const newSystemTransaction = entityManager.create(
+                      this.systemTransactionRepository.target,
+                      {
+                        amount: amt,
+                        fee: 0,
+                        status: 'success',
+                        summary: 'Payment for order delivery',
+                        transaction_type: TransactionType.CREDIT,
+                        tx_ref: order?.order_id,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                        order: order,
+                      },
+                    );
+
+                    await entityManager.save(newSystemTransaction);
+
+                    // ✅ Update admin wallet balance
+                    adminWallet.prev_balance = adminWallet.balance;
+                    adminWallet.balance += amt;
+                    await entityManager.save(riderWallet);
+                  }
+                }
+              }
             }
-          }
+          },
+        );
 
-          const remDeliveryFee = order.delivery_fee - order?.rider_commission;
-          const amtSys = order.service_charge + remDeliveryFee;
-          const systemTransaction = this.systemTransactionRepository.create({
-            amount: amtSys,
-            fee: 0,
-            status: 'success',
-            summary: 'Payment for order purchase',
-            transaction_type: TransactionType.CREDIT,
-            tx_ref: order?.order_id,
-            created_at: new Date(),
-            updated_at: new Date(),
-          });
-
-          systemTransaction.order = order;
-          const updatedSys =
-            await this.systemTransactionRepository.save(systemTransaction);
-          console.log('UPDATED SYSTEM NOTIF ::: ', updatedSys);
-
-          // this.socketGateway.sendEvent(
-          //   rider?.id,
-          //   UserType.RIDER,
-          //   'refresh-wallet',
-          //   { message: 'Refresh wallet now', data: updated },
-          // );
-
-          // notify vendor with FCM
-          await this.notificationservice.sendPushNotification(
-            order?.customer?.fcmToken,
-            {
-              message: 'Your order is completed successfully',
-              notificatioonType: PushNotificationType.ORDER,
-              title: 'Order Completed',
-              itemId: order?.id,
-            },
-          );
-
-          // Create vendor notification here
-          const vendorNotification = this.vendorNotificationRepository.create({
-            is_read: false,
-            message: `Order from ${order?.customer?.first_name} ${order?.customer?.last_name} is completed`,
-            notification_type: VendorNotificationType.ORDER_NOTIFICATION,
-            created_at: new Date(),
-            updated_at: new Date(),
-          });
-          vendorNotification.vendor = order.vendor;
-
-          await this.vendorNotificationRepository.save(vendorNotification);
-
-          return {
-            message: 'Transaction completed successfully',
-          };
-        } else if (order?.order_type === OrderType.PARCEL_ORDER) {
-          const rider = await this.riderRepository.findOne({
-            where: { id: order?.rider?.id },
-          });
-
-          if (rider) {
-            const riderWallet = await this.riderWalletRepository.findOne({
-              where: { rider: { id: rider?.id } },
-              relations: ['rider'],
-            });
-
-            if (!riderWallet) {
-              return;
-            }
-
-            riderWallet.prev_balance = riderWallet.balance;
-            riderWallet.balance = riderWallet.balance + order?.rider_commission;
-            await this.riderWalletRepository.save(riderWallet);
-            // Now create transactions here for fastbuy, vendor and rider
-            // Distribute profits
-            const riderTransaction = this.riderTransactionRepository.create({
-              amount: order?.rider_commission,
-              fee: 0,
-              status: 'success',
-              summary: 'Payment for order delivery',
-              transaction_type: TransactionType.CREDIT,
-              tx_ref: order?.order_id,
-              created_at: new Date(),
-              updated_at: new Date(),
-            });
-
-            riderTransaction.rider = rider;
-            const updated =
-              await this.riderTransactionRepository.save(riderTransaction);
-
-            this.socketGateway.sendEvent(
-              rider?.id,
-              UserType.RIDER,
-              'refresh-wallet',
-              { message: 'Refresh wallet now', data: updated },
-            );
-          }
-
-          const remDeliveryFee = order.delivery_fee - order?.rider_commission;
-          const amt = order.service_charge + remDeliveryFee;
-          const systemTransaction = this.systemTransactionRepository.create({
-            amount: amt,
-            fee: 0,
-            status: 'success',
-            summary: 'Payment for order purchase',
-            transaction_type: TransactionType.CREDIT,
-            tx_ref: order?.order_id,
-            created_at: new Date(),
-            updated_at: new Date(),
-          });
-
-          systemTransaction.order = order;
-          const updated =
-            await this.systemTransactionRepository.save(systemTransaction);
-          console.log('UPDATED SYSTEM NOTIF ::: ', updated);
-
-          // this.socketGateway.sendEvent(
-          //   rider?.id,
-          //   UserType.RIDER,
-          //   'refresh-wallet',
-          //   { message: 'Refresh wallet now', data: updated },
-          // );
-
-          return {
-            message: 'Transaction completed successfully',
-          };
-        }
+        this.logger.log(
+          `Order ${order.id} marked as COMPLETED and wallet credited.`,
+        );
+      } catch (error) {
+        this.logger.error(`Error completing order ${order.id}:`, error);
       }
-    } else {
-      this.logger.log('No orders to update.');
     }
   }
 }

@@ -22,6 +22,7 @@ import { VendorStatus } from 'src/enums/vendor.status.enum';
 import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 import { UserType } from 'src/enums/user.type.enum';
 import { Coupon } from 'src/entities/coupon.entity';
+import { Customer } from 'src/entities/customer.entity';
 
 @Injectable()
 export class ProductsService {
@@ -34,6 +35,8 @@ export class ProductsService {
     private vendorLocationRepository: Repository<VendorLocation>,
     @InjectRepository(Operator)
     private operatorRepository: Repository<Operator>,
+    @InjectRepository(Customer)
+    private customerRepository: Repository<Customer>,
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
     @InjectRepository(Admin)
@@ -215,72 +218,76 @@ export class ProductsService {
       );
     }
 
-    if (payload?.categoryId) {
-      // Update category here
-      // Now check if category exists
-      const category = await this.categoryRepository.findOne({
-        where: { id: payload?.categoryId },
-      });
+    // Now check if category exists
+    const category = await this.categoryRepository.findOne({
+      where: { id: payload?.categoryId },
+    });
 
-      if (!category) {
-        throw new HttpException(
-          {
-            message: 'Product category not found',
-            status: HttpStatus.NOT_FOUND,
-          },
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      const { categoryId, ...rest } = payload;
-      console.log('Category: ', categoryId);
-
-      await this.productRepository.update(
-        {
-          id: productId,
-        },
-        { ...rest },
-      );
-
+    if (category) {
       product.category = category;
-      const savedProduct = await this.productRepository.save(product);
-
-      this.socketGateway.sendVendorNotification(
-        product?.vendor_location?.vendor?.id,
-        {
-          title: `Product updated successfully`,
-          message: 'Your product has been updated on your product catalogue',
-          data: savedProduct,
-        },
-      );
-
-      this.socketGateway.sendVendorEvent(
-        product?.vendor_location?.vendor?.id,
-        'refresh-products',
-        {
-          action: 'Refreshing productss...',
-        },
-      );
-
-      return {
-        message: 'Product updated successfully',
-        data: savedProduct,
-      };
-    } else {
-      // Merge the payload into the existing product object
-      const updatedProduct = this.productRepository.create({
-        ...product,
-        ...payload,
-      });
-
-      // Save the updated product
-      const savedProduct = await this.productRepository.save(updatedProduct);
-
-      return {
-        message: 'Product updated successfully',
-        data: savedProduct,
-      };
     }
+
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.locationId },
+    });
+
+    if (vendorLocation) {
+      product.vendor_location = vendorLocation;
+    }
+
+    product.amount = payload?.amount ?? product?.amount;
+    product.sale_amount = payload?.sale_amount ?? product?.sale_amount;
+    product.specifications = payload?.specifications ?? product?.specifications;
+    product.description = payload?.description ?? product?.description;
+    product.addons = payload?.addons ?? product?.addons;
+    product.variations = payload?.variations ?? product?.variations;
+    product.images = payload?.images ?? product?.images;
+    product.is_variable = payload?.is_variable ?? product?.is_variable;
+    product.name = payload?.name ?? product?.name;
+    product.discount_amount =
+      payload?.discount_amount ?? product?.discount_amount;
+    product.discount_percent =
+      payload?.discount_percent ?? product?.discount_percent;
+    product.ingredients = payload?.ingredients ?? product?.ingredients;
+
+    const savedProduct = await this.productRepository.save(product);
+
+    this.socketGateway.sendVendorNotification(
+      product?.vendor_location?.vendor?.id,
+      {
+        title: `Product updated successfully`,
+        message: 'Your product has been updated on your product catalogue',
+        data: savedProduct,
+      },
+    );
+
+    this.socketGateway.sendVendorEvent(
+      product?.vendor_location?.vendor?.id,
+      'refresh-products',
+      {
+        action: 'Refreshing productss...',
+      },
+    );
+
+    // Notify all customers
+    const customers = await this.customerRepository.find();
+
+    for (let index = 0; index < customers.length; index++) {
+      const customer = customers[index];
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-vendors',
+        {
+          action: 'Refreshing vendors...',
+        },
+      );
+    }
+
+    return {
+      message: 'Product updated successfully',
+      data: savedProduct,
+    };
   }
 
   async findProducts(page: number, limit: number, vendor_type?: VendorType) {

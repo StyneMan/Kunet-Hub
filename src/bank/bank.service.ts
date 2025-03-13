@@ -51,6 +51,7 @@ import { PaystackPayoutDTO } from './gateways/paystack/dtos/payout.dto';
 import { CommissionAndFee } from 'src/entities/fee.entity';
 import { NotificationService } from 'src/notification/notification.service';
 import { PushNotificationType } from 'src/enums/push.notification.type.enum';
+import { OrderType } from 'src/enums/order.type.enum';
 
 @Injectable()
 export class BankService {
@@ -1617,10 +1618,9 @@ export class BankService {
 
         console.log('ORDER INFO CHECK ::: ', payload?.orderInfo?.items);
 
-        // Send order email here
         // now send order confirmation email here
         await this.mailerService.sendMail({
-          to: 'stanleynyekpeye@gmail.com',
+          to: customer?.email_address,
           subject: 'Order Confirmation Email',
           html: orderConfirmationEmail({
             amount: payload?.orderInfo?.amount,
@@ -1654,6 +1654,31 @@ export class BankService {
           'refresh-wallet',
           { message: 'Refreshing wallet', order: newOrder },
         );
+
+        if (payload?.orderInfo?.orderType !== OrderType.PARCEL_ORDER) {
+          await this.notificationservice.sendPushNotification(
+            newOrder?.data?.vendor_location?.fcmToken ?? '',
+            {
+              message: `New order from ${customer?.first_name} ${customer?.last_name}`,
+              notificatioonType: PushNotificationType.ORDER,
+              title: 'New Order',
+              itemId: newOrder?.data.id,
+            },
+          );
+
+          console.log('VENDDOR ID :: :: -- ', newOrder?.data?.vendor.id);
+
+          this.socketGateway.sendVendorEvent(
+            newOrder?.data?.vendor.id,
+            'new-order',
+            {
+              message: `New order from ${newOrder?.data?.customer?.first_name} ${newOrder?.data?.customer?.last_name}`,
+              order: newOrder,
+              business_location: newOrder?.data?.vendor_location?.id,
+            },
+          );
+        } else {
+        }
 
         try {
           await this.notificationservice.sendPushNotification(

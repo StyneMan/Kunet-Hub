@@ -23,6 +23,8 @@ import { VendorNotification } from 'src/entities/vendor.notification.entity';
 import { RiderReview } from 'src/entities/rider.review.entity';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { VendorReview } from 'src/entities/vendor.review.entity';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
+import { Admin } from 'src/entities/admin.entity';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { VendorReview } from 'src/entities/vendor.review.entity';
       Customer,
       Vendor,
       Order,
+      Admin,
       Operator,
       Rider,
       Product,
@@ -43,6 +46,7 @@ import { VendorReview } from 'src/entities/vendor.review.entity';
       VendorLocation,
       CommissionAndFee,
       RiderTransactions,
+      AdminNotification,
       VendorTransactions,
       SystemTransactions,
       VendorNotification,

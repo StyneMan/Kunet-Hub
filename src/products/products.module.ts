@@ -10,6 +10,7 @@ import { Category } from 'src/entities/category.entity';
 import { SocketModule } from 'src/socket/socket.module';
 import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { Coupon } from 'src/entities/coupon.entity';
+import { Customer } from 'src/entities/customer.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { Coupon } from 'src/entities/coupon.entity';
       Vendor,
       Operator,
       Admin,
+      Customer,
       Category,
       Coupon,
       VendorLocation,

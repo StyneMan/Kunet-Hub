@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import {
   Addon,
+  Ingredient,
   Nutrition,
   ProdVariations,
   Specification,
@@ -46,7 +47,7 @@ export class UpdateProductDTO {
 
   @IsOptional()
   @IsString()
-  summary?: string;
+  locationId?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -67,6 +68,10 @@ export class UpdateProductDTO {
   @IsOptional()
   @IsArray()
   specifications?: Specification[];
+
+  @IsOptional()
+  @IsArray()
+  ingredients?: Ingredient[];
 
   @IsOptional()
   @IsArray()

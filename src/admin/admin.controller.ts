@@ -16,6 +16,8 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt_guard';
 import { CreateAdminDTO } from './dtos/createadmin.dto';
 import { ValidationError } from 'class-validator';
 import { Request } from 'express';
+import { UpdateFCMTokenDTO } from 'src/commons/dtos/update.fcm.dto';
+import { UpdateWalletPINDTO } from 'src/commons/dtos/update.wallet.pin.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -100,5 +102,78 @@ export class AdminController {
   @Post(':id/delete')
   async deleteAdmin(@Req() req: any) {
     return await this.adminService.deleteAdmin(req?.user?.sub, req?.params?.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('fcm/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateFCMToken(@Req() req: any, @Body() body: UpdateFCMTokenDTO) {
+    return await this.adminService.updateAdminFCMToken(req?.user?.sub, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('notifications')
+  async adminNotifications(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 25,
+  ) {
+    return await this.adminService.findAdminNotifications(page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/notifications/read')
+  async markAsReadNotifications(@Req() req: any) {
+    return await this.adminService.markAllAsRead(req?.params?.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('wallet/secure')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async setWalletPIN(@Body() payload: UpdateWalletPINDTO, @Req() req: any) {
+    return this.adminService.setWalletPin(req?.user?.sub, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('wallet')
+  async getWallet() {
+    return this.adminService.findAdminWallet();
   }
 }

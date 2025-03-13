@@ -1428,9 +1428,15 @@ export class RidersService {
         console.error(error);
       }
 
+      const ordersRefreshed = await this.orderRepository.find({
+        where: { rider: { id: rider?.id } },
+        relations: ['vendor', 'rider', 'customer', 'vendor_location'],
+      });
+
       return {
         message: 'Receiver notified of your arrival',
         order: updatedOrder,
+        orders: ordersRefreshed,
       };
     } else {
       try {
@@ -1457,9 +1463,15 @@ export class RidersService {
         console.error(error);
       }
 
+      const ordersRefreshed = await this.orderRepository.find({
+        where: { rider: { id: rider?.id } },
+        relations: ['vendor', 'rider', 'customer', 'vendor_location'],
+      });
+
       return {
         message: 'Customer notified of your arrival',
         order: updatedOrder,
+        orders: ordersRefreshed,
       };
     }
   }
@@ -1537,6 +1549,24 @@ export class RidersService {
             HttpStatus.INTERNAL_SERVER_ERROR,
           );
         }
+
+        this.socketGateway.sendEvent(
+          rider?.id,
+          UserType.RIDER,
+          'refresh-orders',
+          {
+            message: 'Order Refreshing...',
+          },
+        );
+
+        this.socketGateway.sendEvent(
+          order?.customer?.id,
+          UserType.CUSTOMER,
+          'refresh-orders',
+          {
+            message: 'Order Refreshing...',
+          },
+        );
 
         return {
           message: 'Order accepted successfully',
@@ -1617,9 +1647,15 @@ export class RidersService {
           );
         }
 
+        const ordersRefreshed = await this.orderRepository.find({
+          where: { rider: { id: rider?.id } },
+          relations: ['vendor', 'rider', 'customer', 'vendor_location'],
+        });
+
         return {
           message: 'Order accepted successfully',
           order: updatedorder,
+          orders: ordersRefreshed,
         };
       }
 
@@ -1714,8 +1750,14 @@ export class RidersService {
     // Now reassign this order to the next available rider
     await this.orderService.matchOrderToRider(order?.id);
 
+    const ordersRefreshed = await this.orderRepository.find({
+      where: { rider: { id: rider?.id } },
+      relations: ['vendor', 'rider', 'customer', 'vendor_location'],
+    });
+
     return {
       message: 'Order rejected successfully',
+      orders: ordersRefreshed,
     };
   }
 

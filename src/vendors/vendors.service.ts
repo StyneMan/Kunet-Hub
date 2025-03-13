@@ -2436,7 +2436,7 @@ export class VendorsService {
 
     const order = await this.orderRepository.findOne({
       where: { id: payload?.orderId },
-      relations: ['customer'],
+      relations: ['customer', 'vendor', 'vendor_location'],
     });
 
     if (!order) {
@@ -2477,6 +2477,39 @@ export class VendorsService {
         );
       }
 
+      // Refund the customer here
+      const customerWallet = await this.customerWalletRepository.findOne({
+        where: { customer: { id: order?.customer?.id } },
+      });
+
+      if (!customerWallet) {
+        throw new HttpException(
+          'Customer wallet not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      customerWallet.prev_balance = customerWallet.balance;
+      customerWallet.balance =
+        customerWallet.balance + order.total_amount + order?.service_charge;
+      customerWallet.updated_at = new Date();
+      await this.customerWalletRepository.save(customerWallet);
+
+      // Create a transaction to this effect
+      const customerTrans = this.customerTransactionRepository.create({
+        amount: order?.total_amount + order?.service_charge,
+        fee: 0,
+        transaction_type: TransactionType.CREDIT,
+        summary: 'Order cancellation refund',
+        tx_ref: `${order?.order_id}-${generateRandomCoupon(3, order?.customer?.first_name)}`,
+        status: 'success',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      customerTrans.customer = order.customer;
+      await this.customerTransactionRepository.save(customerTrans);
+
       wallet.prev_balance = wallet.balance;
       wallet.balance =
         wallet.balance - existingFee[0]?.vendor_order_cancellation;
@@ -2499,47 +2532,13 @@ export class VendorsService {
       trans.vendor_location = order.vendor_location;
       await this.transactionRepository.save(trans);
 
-      // Refund the customer here
-      const customerWallet = await this.customerWalletRepository.findOne({
-        where: { customer: { id: order?.customer?.id } },
-      });
-
-      if (!customerWallet) {
-        throw new HttpException(
-          'Customer wallet not found',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      customerWallet.prev_balance = customerWallet.balance;
-      customerWallet.balance =
-        customerWallet.balance + order.total_amount + order?.service_charge;
-      customerWallet.updated_at = new Date();
-
-      await this.customerWalletRepository.save(customerWallet);
-
-      // Create a transaction to this effect
-      const customerTrans = this.customerTransactionRepository.create({
-        amount: order?.total_amount + order?.service_charge,
-        fee: 0,
-        transaction_type: TransactionType.CREDIT,
-        summary: 'Order cancellation refund',
-        tx_ref: `${order?.order_id}-${generateRandomCoupon(3, order?.customer?.first_name)}`,
-        status: 'success',
-        created_at: new Date(),
-        updated_at: new Date(),
-      });
-
-      customerTrans.customer = order.customer;
-      await this.customerTransactionRepository.save(customerTrans);
-
       // Now create a transaction to this effect here
       const systemTrans = this.systemTransactionRepository.create({
         amount: existingFee[0]?.vendor_order_cancellation,
         fee: 0,
         transaction_type: TransactionType.CREDIT,
         summary: 'Order rejection earning',
-        tx_ref: `CNL-${order?.order_id}-${generateRandomCoupon(4, vendor?.name)}`,
+        tx_ref: `CNL-${order?.order_id}-${generateRandomCoupon(3, vendor?.name)}`,
         status: 'success',
         created_at: new Date(),
         updated_at: new Date(),
@@ -2556,14 +2555,10 @@ export class VendorsService {
         },
       );
 
-      this.socketGateway.sendNotification(
-        order?.customer?.id,
-        UserType.CUSTOMER,
-        {
-          title: 'Order Rejected.',
-          message: 'Your Order was Rejected. Please re-order again.',
-        },
-      );
+      this.socketGateway.sendVendorEvent(order?.vendor?.id, 'refresh-orders', {
+        title: 'Order Rejected.',
+        message: 'Your Order was Rejected. Please re-order again.',
+      });
 
       await this.notificationservice.sendPushNotification(
         order?.customer?.fcmToken,

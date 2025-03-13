@@ -44,6 +44,9 @@ export class Admin {
   iso_code: string;
 
   @Column({ nullable: true })
+  wallet_pin?: string;
+
+  @Column({ nullable: true })
   country_code: string;
 
   @Column({ type: 'enum', enum: AdminAccess })
