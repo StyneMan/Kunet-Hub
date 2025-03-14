@@ -93,6 +93,36 @@ export class ProductsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/admin/update')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async updateProductAdmin(@Req() req: any, @Body() body: UpdateProductDTO) {
+    return await this.productService.updateProductAdmin(
+      req?.user?.sub,
+      req?.params?.id,
+      body,
+    );
+  }
+
   @Get('vendor/:id/all')
   async vendorProducts(
     @Req() req: Request,
@@ -147,6 +177,35 @@ export class ProductsController {
   )
   async deleteProduct(@Req() req: any) {
     return await this.productService.deleteProduct(
+      req?.user?.sub,
+      req?.params?.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/admin/delete')
+  @UsePipes(
+    new ValidationPipe({
+      exceptionFactory: (errors: ValidationError[]) => {
+        const validationErrors = errors.map((error) => ({
+          field: error.property,
+          errors: Object.values(error.constraints || {}),
+        }));
+
+        // Extract the first error message from the validation errors
+        const firstErrorField = validationErrors[0].field;
+        const firstErrorMessage = validationErrors[0].errors[0];
+
+        return new BadRequestException({
+          statusCode: 400,
+          message: `${firstErrorField}: ${firstErrorMessage}`,
+          errors: validationErrors,
+        });
+      },
+    }),
+  )
+  async deleteProductAdmin(@Req() req: any) {
+    return await this.productService.deleteProductAdmin(
       req?.user?.sub,
       req?.params?.id,
     );

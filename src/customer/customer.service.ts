@@ -1887,7 +1887,7 @@ export class CustomerService {
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
         })
-        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .orderBy('order.updated_at', 'DESC') // Sort by most recent orders first
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -1951,7 +1951,7 @@ export class CustomerService {
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
         }) // Filter by order status
-        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .orderBy('order.updated_at', 'DESC') // Sort by most recent orders first
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -2015,7 +2015,7 @@ export class CustomerService {
         .andWhere('order.order_status IN (:...inProgressStatuses)', {
           inProgressStatuses,
         }) // Filter by order status
-        .orderBy('order.created_at', 'DESC') // Sort by most recent orders first
+        .orderBy('order.updated_at', 'DESC') // Sort by most recent orders first
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data

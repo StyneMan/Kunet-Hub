@@ -52,10 +52,14 @@ import { VendorLocation } from 'src/entities/vendor.location.entity';
 import { PushNotificationType } from 'src/enums/push.notification.type.enum';
 import { NotificationService } from 'src/notification/notification.service';
 import { VendorNotification } from 'src/entities/vendor.notification.entity';
-import { VendorNotificationType } from 'src/enums/vendor.notification.type.enum';
+import {
+  AdminNotificationType,
+  VendorNotificationType,
+} from 'src/enums/vendor.notification.type.enum';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { RevieweeType } from 'src/enums/reviewer.type.enum';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
 
 @Injectable()
 export class RidersService {
@@ -98,6 +102,8 @@ export class RidersService {
     private readonly notificationservice: NotificationService,
     @InjectRepository(VendorNotification)
     private vendorNotificationRepository: Repository<VendorNotification>,
+    @InjectRepository(AdminNotification)
+    private readonly adminNotificationRepository: Repository<AdminNotification>,
   ) {}
 
   findRiders() {
@@ -258,6 +264,27 @@ export class RidersService {
 
     const { password, ...rest } = newUser;
     console.log('PAss', password);
+
+    // Save admin notification
+    const newNotification = this.adminNotificationRepository.create({
+      is_read: false,
+      message: 'New rider onboarding',
+      notification_type: AdminNotificationType.RIDER_NOTIFICATION,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    newNotification.admin = adm;
+    await this.adminNotificationRepository.save(newNotification);
+
+    // Save admin notification
+    const newActivity = this.activitiesRepository.create({
+      description: `${adm.first_name} ${adm.last_name} onboarded the rider ${newUser?.first_name} ${newUser?.last_name}`,
+      name: 'Rider Onboarding',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    newActivity.user = adm;
+    await this.activitiesRepository.save(newActivity);
 
     return {
       message: 'Rider onboarded successfully',
@@ -719,7 +746,7 @@ export class RidersService {
         .leftJoinAndSelect('vendor.categories', 'categories')
         .leftJoinAndSelect('vendor.owner', 'owner')
         .where('rider.id = :riderId', { riderId }) // Filter by vendor ID
-        .orderBy('orders.created_at', 'DESC') // Sort by created_at in descending order
+        .orderBy('orders.updated_at', 'DESC') // Sort by created_at in descending order
         .skip(skip) // Skip the records
         .take(limit) // Limit the number of records
         .getMany(), // Execute query to fetch data
@@ -783,7 +810,7 @@ export class RidersService {
         .andWhere('orders.order_status NOT IN (:...excludedStatuses)', {
           excludedStatuses,
         }) // Exclude statuses
-        .orderBy('orders.created_at', 'DESC') // Sort by latest
+        .orderBy('orders.updated_at', 'DESC') // Sort by latest
         .skip(skip) // Pagination
         .take(limit) // Limit records
         .getMany(), // Execute query

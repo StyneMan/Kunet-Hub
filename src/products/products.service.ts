@@ -23,6 +23,8 @@ import { OperatorRole, OperatorType } from 'src/enums/operator.type.enum';
 import { UserType } from 'src/enums/user.type.enum';
 import { Coupon } from 'src/entities/coupon.entity';
 import { Customer } from 'src/entities/customer.entity';
+import { AdminRoles } from 'src/enums/admin.roles.enum';
+import { AdminAccess } from 'src/enums/admin.access.enum';
 
 @Injectable()
 export class ProductsService {
@@ -236,6 +238,121 @@ export class ProductsService {
     }
 
     product.amount = payload?.amount ?? product?.amount;
+    product.status = payload?.status ?? product?.status;
+    product.sale_amount = payload?.sale_amount ?? product?.sale_amount;
+    product.specifications = payload?.specifications ?? product?.specifications;
+    product.description = payload?.description ?? product?.description;
+    product.addons = payload?.addons ?? product?.addons;
+    product.variations = payload?.variations ?? product?.variations;
+    product.images = payload?.images ?? product?.images;
+    product.is_variable = payload?.is_variable ?? product?.is_variable;
+    product.name = payload?.name ?? product?.name;
+    product.discount_amount =
+      payload?.discount_amount ?? product?.discount_amount;
+    product.discount_percent =
+      payload?.discount_percent ?? product?.discount_percent;
+    product.ingredients = payload?.ingredients ?? product?.ingredients;
+
+    const savedProduct = await this.productRepository.save(product);
+
+    this.socketGateway.sendVendorNotification(
+      product?.vendor_location?.vendor?.id,
+      {
+        title: `Product updated successfully`,
+        message: 'Your product has been updated on your product catalogue',
+        data: savedProduct,
+      },
+    );
+
+    this.socketGateway.sendVendorEvent(
+      product?.vendor_location?.vendor?.id,
+      'refresh-products',
+      {
+        action: 'Refreshing productss...',
+      },
+    );
+
+    // Notify all customers
+    const customers = await this.customerRepository.find();
+
+    for (let index = 0; index < customers.length; index++) {
+      const customer = customers[index];
+      this.socketGateway.sendEvent(
+        customer?.id,
+        UserType.CUSTOMER,
+        'refresh-vendors',
+        {
+          action: 'Refreshing vendors...',
+        },
+      );
+    }
+
+    return {
+      message: 'Product updated successfully',
+      data: savedProduct,
+    };
+  }
+
+  async updateProductAdmin(
+    email_address: string,
+    productId: string,
+    payload: UpdateProductDTO,
+  ) {
+    const admin = await this.adminRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!admin) {
+      throw new HttpException(
+        { message: 'Admin not found', status: HttpStatus.NOT_FOUND },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      admin.role !== AdminRoles.SUPER_ADMIN &&
+      admin.access !== AdminAccess.READ_WRITE
+    ) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          message: 'You are forbidden to perform this action',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+      relations: ['vendor'],
+    });
+
+    if (!product) {
+      throw new HttpException(
+        { message: 'Product not found', status: HttpStatus.NOT_FOUND },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Now check if category exists
+    const category = await this.categoryRepository.findOne({
+      where: { id: payload?.categoryId },
+    });
+
+    if (category) {
+      product.category = category;
+    }
+
+    const vendorLocation = await this.vendorLocationRepository.findOne({
+      where: { id: payload?.locationId },
+    });
+
+    if (vendorLocation) {
+      product.vendor_location = vendorLocation;
+    }
+
+    product.amount = payload?.amount ?? product?.amount;
+    product.status = payload?.status ?? product?.status;
     product.sale_amount = payload?.sale_amount ?? product?.sale_amount;
     product.specifications = payload?.specifications ?? product?.specifications;
     product.description = payload?.description ?? product?.description;
@@ -388,6 +505,46 @@ export class ProductsService {
       operator.operator_type !== OperatorType.OWNER &&
       operator.operator_role !== OperatorRole.MANAGER &&
       operator.operator_role !== OperatorRole.SUPER
+    ) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          message: 'You are forbidden to perform this action',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    await this.productRepository.delete(productId);
+
+    return {
+      message: 'Product deleted successfully',
+    };
+  }
+
+  async deleteProductAdmin(email_address: string, productId: string) {
+    const admin = await this.adminRepository.findOne({
+      where: { email_address: email_address },
+    });
+
+    if (!admin) {
+      throw new HttpException(
+        { message: 'Admin not found', status: HttpStatus.NOT_FOUND },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      admin.role !== AdminRoles.SUPER_ADMIN &&
+      admin.access !== AdminAccess.READ_WRITE
     ) {
       throw new HttpException(
         {

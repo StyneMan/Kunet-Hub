@@ -2677,7 +2677,95 @@ export class OrdersService {
                     vendorNotification,
                   );
                 }
+
+                // ✅ Check if admin transaction already exists
+                const existingSystemTransaction = await entityManager.findOne(
+                  this.systemTransactionRepository.target,
+                  {
+                    where: { tx_ref: order?.order_id },
+                  },
+                );
+
+                let adminWallet: AdminWallet;
+
+                if (!existingSystemTransaction) {
+                  // Process vendor's payment
+                  const adminWallets = await entityManager.find(
+                    this.adminWalletRepository.target,
+                  );
+
+                  if (adminWallets.length < 1) {
+                    // Does not exist. Create new here
+                    const newAdminWallet = this.adminWalletRepository.create({
+                      balance: 0,
+                      prev_balance: 0,
+                      created_at: new Date(),
+                      updated_at: new Date(),
+                    });
+
+                    const savedWallet =
+                      await this.adminWalletRepository.save(newAdminWallet);
+                    adminWallet = savedWallet;
+
+                    const remDeliveryFee =
+                      order.delivery_fee - order?.rider_commission;
+                    const amt = order.service_charge + remDeliveryFee;
+
+                    // ✅ Create new system transaction
+                    const newSystemTransaction = entityManager.create(
+                      this.systemTransactionRepository.target,
+                      {
+                        amount: amt,
+                        fee: 0,
+                        status: 'success',
+                        summary: 'Earning from order purchase',
+                        transaction_type: TransactionType.CREDIT,
+                        tx_ref: order?.order_id,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                        order: order,
+                      },
+                    );
+
+                    await entityManager.save(newSystemTransaction);
+
+                    // ✅ Update admin wallet balance
+                    adminWallet.prev_balance = adminWallet.balance;
+                    adminWallet.balance += amt;
+                    await entityManager.save(adminWallet);
+                  } else {
+                    adminWallet = adminWallets[0];
+
+                    const remDeliveryFee =
+                      order.delivery_fee - order?.rider_commission;
+                    const amt = order.service_charge + remDeliveryFee;
+
+                    // ✅ Create new system transaction
+                    const newSystemTransaction = entityManager.create(
+                      this.systemTransactionRepository.target,
+                      {
+                        amount: amt,
+                        fee: 0,
+                        status: 'success',
+                        summary: 'Earning from order purchase',
+                        transaction_type: TransactionType.CREDIT,
+                        tx_ref: order?.order_id,
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                        order: order,
+                      },
+                    );
+
+                    await entityManager.save(newSystemTransaction);
+
+                    // ✅ Update admin wallet balance
+                    adminWallet.prev_balance = adminWallet.balance;
+                    adminWallet.balance += amt;
+                    await entityManager.save(adminWallet);
+                  }
+                }
               } else {
+                // PARCEL ORDERS. NO VENDORS HERE
                 // ✅ Check if a transaction already exists
                 const existingSystemTransaction = await entityManager.findOne(
                   this.systemTransactionRepository.target,
@@ -2707,9 +2795,6 @@ export class OrdersService {
                       await this.adminWalletRepository.save(newAdminWallet);
                     adminWallet = savedWallet;
 
-                    adminWallet = adminWallets[0];
-                    // if (!vendorWallet) return;
-
                     const remDeliveryFee =
                       order.delivery_fee - order?.rider_commission;
                     const amt = order.service_charge + remDeliveryFee;
@@ -2721,7 +2806,7 @@ export class OrdersService {
                         amount: amt,
                         fee: 0,
                         status: 'success',
-                        summary: 'Payment for order delivery',
+                        summary: 'Earning from order purchase',
                         transaction_type: TransactionType.CREDIT,
                         tx_ref: order?.order_id,
                         created_at: new Date(),
@@ -2750,7 +2835,7 @@ export class OrdersService {
                         amount: amt,
                         fee: 0,
                         status: 'success',
-                        summary: 'Payment for order delivery',
+                        summary: 'Earning from order purchase',
                         transaction_type: TransactionType.CREDIT,
                         tx_ref: order?.order_id,
                         created_at: new Date(),
@@ -2764,7 +2849,7 @@ export class OrdersService {
                     // ✅ Update admin wallet balance
                     adminWallet.prev_balance = adminWallet.balance;
                     adminWallet.balance += amt;
-                    await entityManager.save(riderWallet);
+                    await entityManager.save(adminWallet);
                   }
                 }
               }

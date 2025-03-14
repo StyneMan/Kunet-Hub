@@ -35,6 +35,8 @@ import { VendorReview } from 'src/entities/vendor.review.entity';
 import { Rider } from 'src/entities/rider.entity';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
+import { AdminActivity } from 'src/entities/admin.activity.entity';
 
 @Module({
   imports: [
@@ -57,6 +59,8 @@ import { VendorNotification } from 'src/entities/vendor.notification.entity';
       VendorLocation,
       VendorDocument,
       CustomerWallet,
+      AdminNotification,
+      AdminActivity,
       OperatorDocument,
       CommissionAndFee,
       SystemTransactions,

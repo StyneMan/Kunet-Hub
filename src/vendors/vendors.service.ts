@@ -2,7 +2,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Vendor } from 'src/entities/vendor.entity';
-import { Repository } from 'typeorm';
+import { LessThanOrEqual, Repository } from 'typeorm';
 import { CreateVendorDTO } from './dtos/createvendor.dto';
 import generateRandomPassword from 'src/utils/password_generator';
 import { encodePassword } from 'src/utils/bcrypt';
@@ -62,6 +62,10 @@ import { Rider } from 'src/entities/rider.entity';
 import { PendingReviews } from 'src/entities/pending.reviews.entity';
 import { RevieweeType } from 'src/enums/reviewer.type.enum';
 import { VendorNotification } from 'src/entities/vendor.notification.entity';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { AdminNotification } from 'src/entities/admin.notification.entity';
+import { AdminActivity } from 'src/entities/admin.activity.entity';
+import { AdminNotificationType } from 'src/enums/vendor.notification.type.enum';
 
 @Injectable()
 export class VendorsService {
@@ -115,6 +119,10 @@ export class VendorsService {
     private readonly vendorReviewRepository: Repository<VendorReview>,
     @InjectRepository(PendingReviews)
     private readonly pendingReviewRepository: Repository<PendingReviews>,
+    @InjectRepository(AdminNotification)
+    private readonly adminNotificationRepository: Repository<AdminNotification>,
+    @InjectRepository(AdminActivity)
+    private readonly adminActivityRepository: Repository<AdminActivity>,
   ) {}
 
   async findVendors(page: number, limit: number, vendor_type?: VendorType) {
@@ -538,6 +546,27 @@ export class VendorsService {
         ),
       });
 
+      // Save admin notification
+      const newNotification = this.adminNotificationRepository.create({
+        is_read: false,
+        message: 'New vendor onboarding',
+        notification_type: AdminNotificationType.VENDOR_NOTIFICATION,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      newNotification.admin = adm;
+      await this.adminNotificationRepository.save(newNotification);
+
+      // Save admin notification
+      const newActivity = this.adminActivityRepository.create({
+        description: `${adm.first_name} ${adm.last_name} onboarded the vendor ${savedVendor?.name}`,
+        name: 'Vendor Onboarding',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      newActivity.user = adm;
+      await this.adminActivityRepository.save(newActivity);
+
       return {
         message: 'Vendor created successfully',
         data: plainToClass(Vendor, savedVendor),
@@ -890,7 +919,7 @@ export class VendorsService {
       );
     }
 
-    await this.categoryRepository.delete({ id: categoryId });
+    await this.categoryRepository.delete({ id: category?.id });
     this.socketGateway.sendVendorEvent(
       category?.vendor?.id,
       'refresh-categories',
@@ -1730,16 +1759,16 @@ export class VendorsService {
     };
   }
 
-  async deleteVendorLocation(operatorEmail: string, couponId: string) {
-    const coupon = await this.couponRepository.findOne({
-      where: { id: couponId },
+  async deleteVendorLocation(operatorEmail: string, locationID: string) {
+    const businessLocation = await this.vendorLocationRepository.findOne({
+      where: { id: locationID },
       relations: ['vendor'],
     });
 
-    if (!coupon) {
+    if (!businessLocation) {
       throw new HttpException(
         {
-          message: 'Coupon not found!',
+          message: 'Business location not found!',
           error: HttpStatus.NOT_FOUND,
         },
         HttpStatus.NOT_FOUND,
@@ -1771,20 +1800,18 @@ export class VendorsService {
       );
     }
 
-    // Now check if this vendor owns this category;
-    if (operator?.vendor?.id !== coupon?.vendor?.id) {
-      throw new HttpException(
-        {
-          message: 'Operation not allowed',
-          error: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-    }
+    await this.vendorLocationRepository.delete({ id: locationID });
 
-    await this.couponRepository.delete({ id: couponId });
+    this.socketGateway.sendVendorEvent(
+      operator?.vendor?.id,
+      'refresh-locations',
+      {
+        data: null,
+      },
+    );
+
     return {
-      message: 'Coupon deleted successfully',
+      message: 'Business location deleted successfully',
     };
   }
 
@@ -2844,7 +2871,29 @@ export class VendorsService {
     return { message: '' };
   }
 
+  @Cron(CronExpression.EVERY_MINUTE)
   async couponCronJob() {
-    // Cron Job to automatically expire a coupon code on the expiration date
+    // Cron Job to automatically expire a coupon code on the expiration dat
+    const currentTime = new Date();
+
+    // Find coupons that have expired (expires_at < current time) and are not already expired
+    const expiredCoupons = await this.couponRepository.find({
+      where: {
+        expires_at: LessThanOrEqual(currentTime),
+      },
+    });
+
+    if (expiredCoupons.length > 0) {
+      // Update status of expired coupons to 'EXPIRED'
+      for (const coupon of expiredCoupons) {
+        coupon.coupon_status = CouponStatus.EXPIRED;
+        await this.couponRepository.save(coupon);
+      }
+      console.log(
+        `${expiredCoupons.length} coupons have been marked as expired.`,
+      );
+    } else {
+      console.log('No coupons expired at this time.');
+    }
   }
 }

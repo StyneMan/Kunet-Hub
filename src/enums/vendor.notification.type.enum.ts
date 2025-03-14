@@ -9,6 +9,7 @@ export enum VendorNotificationType {
 export enum AdminNotificationType {
   ORDER_NOTIFICATION = 'order_notification',
   RIDER_NOTIFICATION = 'rider_notification',
+  VENDOR_NOTIFICATION = 'vendor_notification',
   WALLET_NOTIFICATION = 'wallet_notification',
   PRODUCT_NOTIFICATION = 'product_notification',
   SUPPORT_NOTIFICATION = 'support_notification',
