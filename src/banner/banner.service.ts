@@ -207,7 +207,7 @@ export class BannerService {
 
     // return data;
   }
-
+ 
   async updateBanner(
     email_address: string,
     bannerId: string,
